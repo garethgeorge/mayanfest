@@ -3,9 +3,10 @@ CC=gcc
 CPPFLAGS= -std=c++11 -g -O0 
 CFLAGS= 
 
-OBJS=src/diskinterface.o
+OBJS=src/diskinterface.o src/segment.o
 INCLUDES=-I ./3rdparty/ -I ./src/
-TEST_OBJS=tests/diskinterface-test.o
+TEST_OBJS=tests/diskinterface-test.o \
+	tests/segment-test.o 
 
 all: filesystem test
 

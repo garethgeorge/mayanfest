@@ -7,6 +7,8 @@ extern "C" {
 
 #include <stdint.h>
 
+#include "diskinterface.h"
+
 struct Segment {
 	Disk *disk;
 
@@ -25,7 +27,7 @@ extern int segment_free(Segment *segment);
 extern int segment_flush_to_disk(Segment *segment);
 extern int segment_get_start_chunk(size_t segment_idx, size_t segment_size);
 extern void segment_write_bytes(Segment *seg, Byte *data, size_t data_len);
-extern void segment_write_bytes(Segment *seg, size_t offset, size_t length, Byte *outdata);
+extern void segment_read_bytes(Segment *seg, size_t offset, size_t length, Byte *outdata);
 
 #ifdef __cplusplus
 }

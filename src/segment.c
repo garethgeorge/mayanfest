@@ -1,5 +1,6 @@
+#include <string.h>
+
 #include "segment.h"
-#include "diskinterface.h"
 
 Segment* segment_create(Disk *disk, size_t segment_idx, size_t segment_size) {
 	Segment *seg = (Segment *)malloc(sizeof(Segment));
@@ -16,7 +17,7 @@ Segment* segment_create(Disk *disk, size_t segment_idx, size_t segment_size) {
 		int errno = disk_read_chunk(disk, 
 			chunk_idx + start_idx, 
 			seg->data + chunk_idx * disk->chunk_size);
-		if (err < 0)
+		if (errno < 0)
 			return NULL;
 	}
 	
@@ -24,7 +25,7 @@ Segment* segment_create(Disk *disk, size_t segment_idx, size_t segment_size) {
 }
 
 int segment_free(Segment *seg) {
-	if (semgent_flush_to_disk(seg) < 0)
+	if (segment_flush_to_disk(seg) < 0)
 		return -1;
 	free((void *)seg->data);
 	free((void *)seg);
@@ -32,6 +33,7 @@ int segment_free(Segment *seg) {
 }
 
 int segment_flush_to_disk(Segment *seg) {
+	const Disk *disk = seg->disk;
 	size_t start_idx = segment_get_start_chunk(seg->index, seg->size_in_chunks);
 	size_t chunk_idx = 0;
 	for (; chunk_idx < seg->size_in_chunks; chunk_idx++) {
@@ -45,15 +47,16 @@ int segment_flush_to_disk(Segment *seg) {
 }
 
 int segment_get_start_chunk(size_t segment_idx, size_t segment_size) {
-	return segment_idx * segment_size
+	return segment_idx * segment_size;
 }
 
 void segment_write_bytes(Segment *seg, Byte *data, size_t data_len) {
-	memcpy(seg->data + seg->bytes_used, data, data_len);
+	memcpy((void *)(seg->data + seg->bytes_used), (void *)data, data_len);
 	seg->bytes_used += data_len;
-	return 0;
 }
 void segment_read_bytes(Segment *seg, size_t offset, size_t length, Byte *outdata) {
 	memcpy(outdata, seg->data + offset, length);
-	return 0;
 }
+
+
+

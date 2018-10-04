@@ -7,6 +7,7 @@ Disk *disk_create(size_t chunk_count, size_t chunk_size) {
 	disk->chunk_count = chunk_count;
 	disk->chunk_size = chunk_size;
 	disk->data = (Byte *)malloc(sizeof(Byte) * chunk_size * chunk_count);
+	memset((void *)disk->data, 0, sizeof(Byte) * chunk_size * chunk_count);
 	return disk;
 }
 
