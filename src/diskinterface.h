@@ -10,20 +10,21 @@ extern "C" {
 #include <stdint.h>
 
 typedef uint8_t Byte;
+typedef uint64_t Size;
 
 struct Disk {
-	size_t chunk_count;
-	size_t chunk_size;
+	Size chunk_count;
+	Size chunk_size;
 	Byte *data;
 };
 
 typedef struct Disk Disk;
 
-extern Disk *disk_create(size_t chunk_count, size_t chunk_size);
+extern Disk *disk_create(Size chunk_count, Size chunk_size);
 extern void disk_free(Disk *disk);
-extern size_t disk_get_size_bytes(Disk *disk); // return size of disk in bytes
-extern int disk_read_chunk(Disk *disk, size_t block_idx, Byte *outdata);
-extern int disk_write_chunk(Disk *disk, size_t block_idx, Byte *data);
+extern Size disk_get_size_bytes(Disk *disk); // return size of disk in bytes
+extern int disk_read_chunk(Disk *disk, Size block_idx, Byte *outdata);
+extern int disk_write_chunk(Disk *disk, Size block_idx, Byte *data);
 
 #ifdef __cplusplus
 }

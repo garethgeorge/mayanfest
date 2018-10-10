@@ -12,22 +12,31 @@ extern "C" {
 struct Segment {
 	Disk *disk;
 
-	size_t index; // the segment index
-	size_t size_in_chunks; // size of the segment in chunks
-	size_t size_in_bytes;
-	size_t bytes_used;
+	Size index; // the segment index
+	Size size_in_chunks; // size of the segment in chunks
+	Size size_in_bytes;
+	Size bytes_used;
 
 	Byte *data;
 };
 
 typedef struct Segment Segment;
 
-extern Segment *segment_create(Disk *disk, size_t segment_idx, size_t segment_size);
+#define SEGMENT_MANAGER_CACHE_SIZE 32
+struct SegmentManager {
+	Disk *disk;
+	Size segment_size_chunks; // segment size in chunks
+	Size cur_seg_idx;
+	// TODO: implement a segment cache, perhaps impor RB tree class
+	Segment *segments[SEGMENT_MANAGER_CACHE_SIZE];
+};
+
+extern Segment *segment_create(Disk *disk, Size segment_idx, Size segment_size);
 extern int segment_free(Segment *segment);
 extern int segment_flush_to_disk(Segment *segment);
-extern int segment_get_start_chunk(size_t segment_idx, size_t segment_size);
-extern void segment_write_bytes(Segment *seg, Byte *data, size_t data_len);
-extern void segment_read_bytes(Segment *seg, size_t offset, size_t length, Byte *outdata);
+extern int segment_get_start_chunk(Size segment_idx, Size segment_size);
+extern void segment_write_bytes(Segment *seg, Byte *data, Size data_len);
+extern void segment_read_bytes(Segment *seg, Size offset, Size length, Byte *outdata);
 
 #ifdef __cplusplus
 }
