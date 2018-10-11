@@ -19,7 +19,7 @@ TEST_CASE( "Test the methods of the disk interface", "[diskinterface]" ) {
 		uint32_t i;
 		Byte buf2[16];
 		memset(buf2, 0, 16);
-		for (i = 0; i < 16; ++i) {
+		for (i = 0; i < 2; ++i) {
 			disk_read_chunk(disk, i, buf);
 			REQUIRE(memcmp(buf, buf2, 16) == 0);
 		}
@@ -27,7 +27,7 @@ TEST_CASE( "Test the methods of the disk interface", "[diskinterface]" ) {
 
 	SECTION( "Write something out to the memory we have allocated ") {
 		uint32_t i;
-		for (i = 0; i < 16; ++i) {
+		for (i = 0; i < 2; ++i) {
 			// NOTE: all of our functions are required to return 0 on success
 			REQUIRE(disk_write_chunk(disk, i, buf) == 0);
 		}
@@ -35,13 +35,13 @@ TEST_CASE( "Test the methods of the disk interface", "[diskinterface]" ) {
 
 	SECTION( "Read something back from memory, confirm it is what we wrote in") {
 		uint32_t i;
-		for (i = 0; i < 16; ++i) {
+		for (i = 0; i < 2; ++i) {
 			// NOTE: all of our functions are required to return 0 on success
 			REQUIRE(disk_write_chunk(disk, i, buf) == 0);
 		}
 
 		Byte buf2[16];
-		for (i = 0; i < 16; ++i) {
+		for (i = 0; i < 2; ++i) {
 			disk_read_chunk(disk, i, buf2);
 			REQUIRE(memcmp(buf, buf2, 16) == 0);
 		}

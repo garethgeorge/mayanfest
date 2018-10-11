@@ -12,8 +12,8 @@ extern "C" {
 #include "diskinterface.h"
 
 #define BITMAP_GET(bitmap, idx) ((*(bitmap + idx / 8) >> (idx % 8)) & 1)
-#define BITMAP_SET(bitmap, idx) *(bitmap + idx / 8) = (BITMAP_GET(bitmap, idx) | (1 << idx % 8))
-#define BITMAP_CLEAR(bitmap, idx) *(bitmap + idx / 8) = (BITMAP_GET(bitmap, idx) & ~(1 << idx % 8))
+#define BITMAP_SET(bitmap, idx) *(bitmap + idx / 8) = *(bitmap + idx) | (1 << idx % 8)
+#define BITMAP_CLEAR(bitmap, idx) *(bitmap + idx / 8) = *(bitmap + idx) & ~(1 << idx % 8)
 
 #define CHUNKBIT_GET(fs, idx) BITMAP_GET(fs->chunk_usage_bitmap, idx - fs->bufferspace_offset)
 
@@ -21,14 +21,18 @@ extern "C" {
 
 struct SuperBlock {
 	Disk *disk;
+
 	Size superblock_size;
 	Size superblock_size_chunks;
+
 	Size chunk_usage_bitmap_offset;
 	Size chunk_usage_bitmap_size;
 	Byte *chunk_usage_bitmap;
+
 	Byte *superblock_buffer;
 
 	Size storage_offset;
+	Size storage_size;
 };
 
 typedef struct SuperBlock SuperBlock;
@@ -39,26 +43,28 @@ extern Size deserializeSize(Byte *inbuf);
 extern void superblock_create(Disk *disk, SuperBlock *superblock);
 extern void superblock_load(Disk *disk, SuperBlock *superblock);
 extern void superblock_flush(SuperBlock *superblock);
+extern void superblock_free(SuperBlock *superblock);
 
-
-struct Filesystem {
+struct FileSystem {
 	Disk *disk;
-	Byte *chunk_usage_bitmap;
-	Size bufferspace_offset;
+	SuperBlock superblock;
 };
 
-typedef struct Filesystem Filesystem;
+typedef struct FileSystem FileSystem;
 
-/*
-	The layout of the filesystem
-	 - the first disk size / (chunk_size * 8) bytes of the disk are allocated to 
-	   a bitmap which records which chunks are currently in use
-	   NOTE: this size is rounded up to the nearest multiple of 1 chunk
-*/
+extern FileSystem *filesystem_create(Disk *disk);
+extern FileSystem *filesystem_load(Disk *disk);
+extern void filesystem_free(FileSystem *fs);
 
-// extern Size filesystem_read_chunksequence(Filesystem *fs, Size start_idx, Size stop_idx, Byte *outbuf);
+// allocates storage as close as possible in size to the size requested and returns it
+struct ChunkBuffer {
+	Size start_idx;
+	Size length;
+};
+typedef struct ChunkBuffer ChunkBuffer;
 
-// extern Size filesystem_write_chunksequence(Filesystem *fs, Size start_idx, Size stop_idx, Byte *inbuf);
+extern ChunkBuffer filesystem_alloc_buffer(FileSystem *fs, Size space_needed);
+extern void filesystem_free_buffer(FileSystem *fs, ChunkBuffer alloc);
 
 
 #ifdef __cplusplus
