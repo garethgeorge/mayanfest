@@ -1,13 +1,11 @@
 CPPCC=g++
-CC=gcc
+CC=g++ 
 CPPFLAGS= -std=c++11 -g -O0 
 CFLAGS= 
 
-OBJS=src/diskinterface.o src/segment.o src/filesystem.o
+OBJS=src/diskinterface.o 
 INCLUDES=-I ./3rdparty/ -I ./src/
-TEST_OBJS=tests/diskinterface-test.o \
-	# tests/segment-test.o \
-	tests/filesystem-test.o 
+TEST_OBJS=tests/test-diskinterface.o
 
 all: test
 
