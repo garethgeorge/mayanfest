@@ -109,11 +109,18 @@ TEST_CASE( "Disk bitmap should work", "[bitmap]" ) {
 			bitmap->set(idx);
 		}
 
-		for (size_t idx = 0; idx < bitmap_size - 1; idx += 4) {
+		for (size_t idx = 0; idx < bitmap_size; idx += 4) {
 			auto range = bitmap->find_unset_bits(3);
 			REQUIRE(range.bit_count == 3);
 			REQUIRE(range.start_idx == idx + 1);
 			range.set_range(*bitmap);
 		}
+	}
+
+	SECTION("a test of edge conditions with small bitvectors and large bit requests") {
+		std::unique_ptr<DiskBitMap> bitmap2(new DiskBitMap(disk.get(), bitmap->size_chunks(), 4));
+		auto range = bitmap2->find_unset_bits(8);
+		REQUIRE(range.bit_count == 4);
+		REQUIRE(range.start_idx == 0);
 	}
 }

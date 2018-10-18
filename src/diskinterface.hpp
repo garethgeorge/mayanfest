@@ -100,7 +100,7 @@ public:
 	Disk(Size size_chunk_ctr, Size chunk_size_ctr) 
 		: _chunk_size(chunk_size_ctr), _size_chunks(size_chunk_ctr) {
 		// initialize the data for the disk
-		this->data = std::unique_ptr<Byte[]>(new Byte[this->size_bytes()]);
+		this->data = std::unique_ptr<Byte[]>(new Byte[this->size_bytes() + 1]);
 		std::memset(this->data.get(), 0, this->size_bytes());
 	}
 
@@ -137,13 +137,16 @@ struct DiskBitMap {
 
 	DiskBitMap(Disk *disk, Size chunk_start, Size size_in_bits) {
 		this->disk = disk;
-		this->size_in_bits = size_in_bits;
+		this->size_in_bits = size_in_bits + 1;
 
 		for (uint64_t idx = 0; idx < this->size_chunks(); ++idx) {
 			auto chunk = disk->get_chunk(idx + chunk_start);
 			chunk->lock.lock();
 			this->chunks.push_back(std::move(chunk));
 		}
+
+		this->set(this->size_in_bits - 1);
+		this->size_in_bits --;
 	}
 
 	~DiskBitMap() {
@@ -218,8 +221,12 @@ struct DiskBitMap {
 			BitRange res = find_unset_cache[byte];
 			res.start_idx += idx;
 			if (res.bit_count != 0) {
+				// bitcount should be limited to the length requested
 				if (res.bit_count > length)
 					res.bit_count = length;
+				// limit the bit_count to prevent it running off the end of the bitset
+				// if (res.start_idx + res.bit_count > this->size_in_bits)
+				// 	res.bit_count = this->size_in_bits - res.start_idx; 
 				return res;
 			}
 		}
