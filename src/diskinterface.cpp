@@ -66,7 +66,7 @@ static bool bitmap_init_cache(std::array<DiskBitMap::BitRange, 256>& cache) {
 			if (!byte[j]) {
 				cache[idx].start_idx = j;
 				Size k = 1;
-				while (byte[j + k]) {
+				while (!byte[j + k] && j + k < 8) {
 					k++;
 				}
 				cache[idx].bit_count = k;

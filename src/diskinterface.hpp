@@ -7,9 +7,10 @@
 #include <string>
 #include <vector>
 #include <array>
+#include <iostream>
 
-using Byte = uint8_t;
-using Size = uint64_t;
+typedef uint8_t Byte;
+typedef uint64_t Size;
 
 class Disk;
 
@@ -131,10 +132,13 @@ struct DiskBitMap {
 	std::mutex block;
 
 	Disk *disk;
-	uint64_t size_in_bits;
+	Size size_in_bits;
 	std::vector<std::shared_ptr<Chunk>> chunks;
 
-	DiskBitMap(Disk *disk, uint64_t chunk_start, uint64_t size_in_bits) {
+	DiskBitMap(Disk *disk, Size chunk_start, Size size_in_bits) {
+		this->disk = disk;
+		this->size_in_bits = size_in_bits;
+
 		for (uint64_t idx = 0; idx < this->size_chunks(); ++idx) {
 			auto chunk = disk->get_chunk(idx + chunk_start);
 			chunk->lock.lock();
@@ -154,12 +158,12 @@ struct DiskBitMap {
 		}
 	}
 
-	Size size_bytes() {
+	Size size_bytes() const {
 		return size_in_bits / 8 + 1;
 	}
 
-	Size size_chunks() {
-		return this->size_bytes() + 1;
+	Size size_chunks() const {
+		return this->size_bytes() / disk->chunk_size() + 1;
 	}
 
 	inline Byte &get_byte_for_idx(Size idx) {
@@ -181,12 +185,12 @@ struct DiskBitMap {
 
 	inline void set(Size idx) {
 		Byte& byte = get_byte_for_idx(idx);
-		byte |= (1 << (idx & 8));
+		byte |= (1 << (idx % 8));
 	}
 
 	inline void clr(Size idx) {
 		Byte& byte = get_byte_for_idx(idx);
-		byte &= ~(1 << (idx & 8));
+		byte &= ~(1 << (idx % 8));
 	}
 
 	struct BitRange {
@@ -208,12 +212,14 @@ struct DiskBitMap {
 
 	static std::array<BitRange, 256> find_unset_cache;
 	
-	BitRange find_unset_bits() {
-		for (Size idx = 0; idx < this->size_bytes(); ++idx) {
-			Byte byte = this->get_byte_for_idx(idx);
+	BitRange find_unset_bits(Size length) {
+		for (Size idx = 0; idx < this->size_in_bits; idx += 8) {
+			const size_t byte = (size_t)this->get_byte_for_idx(idx);
 			BitRange res = find_unset_cache[byte];
-			res.start_idx += idx * 8;
+			res.start_idx += idx;
 			if (res.bit_count != 0) {
+				if (res.bit_count > length)
+					res.bit_count = length;
 				return res;
 			}
 		}
