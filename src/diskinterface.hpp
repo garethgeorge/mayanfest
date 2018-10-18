@@ -4,8 +4,12 @@
 #include <stdint.h>
 #include <mutex>
 #include <unordered_map>
+#include <string>
+#include <vector>
+#include <array>
 
 using Byte = uint8_t;
+using Size = uint64_t;
 
 class Disk;
 
@@ -76,8 +80,8 @@ public:
 class Disk {
 private:
 	// properties of the class
-	const size_t _size_chunks;
-	const size_t _chunk_size;
+	const Size _size_chunks;
+	const Size _chunk_size;
 
 	std::unique_ptr<Byte[]> data;
 
@@ -85,39 +89,137 @@ private:
 	std::mutex lock;
 
 	// a cache of chunks that are loaded in
-	SharedObjectCache<size_t, Chunk> chunk_cache;
+	SharedObjectCache<Size, Chunk> chunk_cache;
 
 	// loops over weak pointers, if any of them are expired, it deletes 
 	// the entries from the unordered map 
 	void sweep_chunk_cache(); 
 public:
 
-	Disk(size_t size_chunk_ctr, size_t chunk_size_ctr) 
+	Disk(Size size_chunk_ctr, Size chunk_size_ctr) 
 		: _chunk_size(chunk_size_ctr), _size_chunks(size_chunk_ctr) {
 		// initialize the data for the disk
 		this->data = std::unique_ptr<Byte[]>(new Byte[this->size_bytes()]);
 		std::memset(this->data.get(), 0, this->size_bytes());
 	}
 
-	inline size_t size_bytes() const {
+	inline Size size_bytes() const {
 		return _size_chunks * _chunk_size;
 	}
 
-	inline size_t size_chunks() const {
+	inline Size size_chunks() const {
 		return _size_chunks;
 	}
 
-	inline size_t chunk_size() const {
+	inline Size chunk_size() const {
 		return _chunk_size;
 	}
 
-	std::shared_ptr<Chunk> get_chunk(size_t chunk_idx);
+	std::shared_ptr<Chunk> get_chunk(Size chunk_idx);
 
 	void flush_chunk(const Chunk& chunk);
 
 	void try_close();
 
 	~Disk();
+};
+
+/*
+	A utility class that implements a bitmap ontop of a range of chunks
+*/
+struct DiskBitMap {
+	std::mutex block;
+
+	Disk *disk;
+	uint64_t size_in_bits;
+	std::vector<std::shared_ptr<Chunk>> chunks;
+
+	DiskBitMap(Disk *disk, uint64_t chunk_start, uint64_t size_in_bits) {
+		for (uint64_t idx = 0; idx < this->size_chunks(); ++idx) {
+			auto chunk = disk->get_chunk(idx + chunk_start);
+			chunk->lock.lock();
+			this->chunks.push_back(std::move(chunk));
+		}
+	}
+
+	~DiskBitMap() {
+		for (auto &chunk : chunks) {
+			chunk->lock.unlock();
+		}
+	}
+
+	void clear_all() {
+		for (std::shared_ptr<Chunk>& chunk : chunks) {
+			std::memset(chunk->data.get(), 0, chunk->size_bytes);
+		}
+	}
+
+	Size size_bytes() {
+		return size_in_bits / 8 + 1;
+	}
+
+	Size size_chunks() {
+		return this->size_bytes() + 1;
+	}
+
+	inline Byte &get_byte_for_idx(Size idx) {
+		uint64_t byte_idx = idx / 8;
+		Byte *data = this->chunks[byte_idx / disk->chunk_size()]->data.get();
+		return data[byte_idx % disk->chunk_size()];
+	}
+
+	inline const Byte &get_byte_for_idx(Size idx) const {
+		uint64_t byte_idx = idx / 8;
+		Byte *data = this->chunks[byte_idx / disk->chunk_size()]->data.get();
+		return data[byte_idx % disk->chunk_size()];
+	}
+
+	inline bool get(Size idx) const {
+		Byte byte = get_byte_for_idx(idx);
+		return byte & (1 << (idx % 8));
+	}
+
+	inline void set(Size idx) {
+		Byte& byte = get_byte_for_idx(idx);
+		byte |= (1 << (idx & 8));
+	}
+
+	inline void clr(Size idx) {
+		Byte& byte = get_byte_for_idx(idx);
+		byte &= ~(1 << (idx & 8));
+	}
+
+	struct BitRange {
+		Size start_idx = 0;
+		Size bit_count = 0;
+
+		void set_range(DiskBitMap &map) {
+			for (Size idx = start_idx; idx < start_idx + bit_count; ++idx) {
+				map.set(idx);
+			}
+		}
+
+		void clr_range(DiskBitMap &map) {
+			for (Size idx = start_idx; idx < start_idx + bit_count; ++idx) {
+				map.clr(idx);
+			}
+		} 
+	};
+
+	static std::array<BitRange, 256> find_unset_cache;
+	
+	BitRange find_unset_bits() {
+		for (Size idx = 0; idx < this->size_bytes(); ++idx) {
+			Byte byte = this->get_byte_for_idx(idx);
+			BitRange res = find_unset_cache[byte];
+			res.start_idx += idx * 8;
+			if (res.bit_count != 0) {
+				return res;
+			}
+		}
+
+		return BitRange();
+	}
 };
 
 

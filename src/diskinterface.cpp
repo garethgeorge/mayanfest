@@ -1,3 +1,6 @@
+#include <bitset>
+#include <cassert>
+
 #include "diskinterface.hpp"
 
 Chunk::~Chunk() {
@@ -6,7 +9,7 @@ Chunk::~Chunk() {
 	this->parent->flush_chunk(*this);
 }
 
-std::shared_ptr<Chunk> Disk::get_chunk(size_t chunk_idx) {
+std::shared_ptr<Chunk> Disk::get_chunk(Size chunk_idx) {
 	std::lock_guard<std::mutex> g(lock); // acquire the lock
 
 	if (chunk_idx > this->size_chunks()) {
@@ -52,3 +55,26 @@ void Disk::try_close() {
 Disk::~Disk() {
 	
 }
+
+std::array<DiskBitMap::BitRange, 256> DiskBitMap::find_unset_cache;
+
+static bool bitmap_init_cache(std::array<DiskBitMap::BitRange, 256>& cache) {
+	for (Size idx = 0; idx < 256; ++idx) {
+		std::bitset<8> byte(idx);
+
+		for (Size j = 0; j < 8; ++j) {
+			if (!byte[j]) {
+				cache[idx].start_idx = j;
+				Size k = 1;
+				while (byte[j + k]) {
+					k++;
+				}
+				cache[idx].bit_count = k;
+				break;
+			}
+		}
+	}
+	return true;
+}
+
+static bool find_unset_cache_initialized = bitmap_init_cache(DiskBitMap::find_unset_cache);

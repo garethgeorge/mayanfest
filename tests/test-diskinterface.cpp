@@ -47,4 +47,16 @@ TEST_CASE( "Disk interface should work", "[diskinterface]" ) {
 		REQUIRE(refB->data.get()[0] == 1);
 	}
 
+	SECTION("can get a reference, release it thus flushing chunk to disk, and then get a new reference and find the same data") {
+		{
+			std::shared_ptr<Chunk> refA = disk->get_chunk(4);
+			refA->data.get()[0] = 1;
+		}
+		
+		{
+			std::shared_ptr<Chunk> refB = disk->get_chunk(4);
+			REQUIRE(refB->data.get()[0] == 1);
+		}
+	}
+
 }
