@@ -1,3 +1,5 @@
+#include <iostream>
+
 #include "catch.hpp"
 
 #include "diskinterface.hpp"
@@ -15,8 +17,9 @@ TEST_CASE( "Disk interface should work", "[diskinterface]" ) {
 	}
 
 	SECTION("that chunk should be filled with 0's by default") {
+		chunk0 = disk->get_chunk(0);
 		for (size_t i = 0; i < disk->chunk_size(); ++i) {
-			if (chunk0->data[i] != 0) {
+			if (chunk0->data.get()[i] != 0) {
 				REQUIRE(false);
 			}
 		}

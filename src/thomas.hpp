@@ -57,8 +57,8 @@ struct SuperBlock {
         if(superblock_size_chunks != 1) {
             throw new FileSystemException("superblock size > 1 chunk not supported!");
         }
-        disk->get_chunk(0);
-        
+        auto sb_chunk = disk->get_chunk(0);
+
 	}
 
     void load() {
