@@ -12,51 +12,67 @@ using Size = uint64_t;
 const uint64_t INode::INDIRECT_TABLE_SIZES[4] = {DIRECT_ADDRESS_COUNT, INDIRECT_ADDRESS_COUNT, DOUBLE_INDIRECT_ADDRESS_COUNT, TRIPPLE_INDIRECT_ADDRESS_COUNT};
 
 uint64_t INode::read(uint64_t starting_offset, char *buf, uint64_t n) const {
-    /*
-		uint64_t chunk_number; //index of chunk
-		uint64_t byte_offset; //index of byte within that chunk
-		uint64_t starting_offset_chunk; //starting byte offset of chunk
-		uint64_t ending_offset_chunk; //ending byte offset of chunk
-		uint64_t num_chunk_address_per_chunk = superblock->chunk_size / sizeof(uint64_t);
-		uint64_t num_bytes_till_end_of_chunk; //including byte_offset
-		uint64_t num_of_chunks_to_access; //number of chunks to access
-		uint64_t i; //loop counter
-		uint64_t bytes_to_read;
-		std::shared_ptr<Chunk> chunk;
+	uint64_t chunk_number; //index of chunk
+	uint64_t byte_offset; //index of byte within that chunk
+	uint64_t starting_offset_chunk; //starting byte offset of chunk
+	uint64_t ending_offset_chunk; //ending byte offset of chunk
+	uint64_t num_chunk_address_per_chunk = superblock->chunk_size / sizeof(uint64_t);
+	uint64_t num_bytes_till_end_of_chunk; //including byte_offset
+	uint64_t num_of_chunks_to_access; //number of chunks to access
+	uint64_t i; //loop counter
+	uint64_t bytes_to_read;
+	uint64_t n_copy;
+	std::shared_ptr<Chunk> chunk;
 
-		//setup info for first chunk
-		chunk_number = starting_offset / superblock->chunk_size;
-		byte_offset = starting_offset % superblock->chunk_size;
-		starting_offset_chunk = chunk_number * superblock->chunk_size;
-		ending_offset_chunk = starting_offset_chunk + superblock->chunk_size - 1;
-		num_bytes_till_end_of_chunk = superblock->chunk_size - byte_offset;
+	if((starting_offset + n) > data.file_size){
+		n = data.file_size - starting_offset;
+	}
+	n_copy = n;
 
-		//find number of chunks to access
-		num_of_chunks_to_access = 1;
-		if(n > num_bytes_till_end_of_chunk){
-			n_temp = n - num_bytes_till_end_of_chunk;
-			num_of_chunks_to_access += (n_temp / superblock->chunk_size);
+	//setup info for first chunk
+	chunk_number = starting_offset / superblock->chunk_size;
+	byte_offset = starting_offset % superblock->chunk_size;
+	starting_offset_chunk = chunk_number * superblock->chunk_size;
+	ending_offset_chunk = starting_offset_chunk + superblock->chunk_size - 1;
+	num_bytes_till_end_of_chunk = superblock->chunk_size - byte_offset;
+
+	//find number of chunks to access
+	num_of_chunks_to_access = 1;
+	if(n > num_bytes_till_end_of_chunk){
+		n_temp = n - num_bytes_till_end_of_chunk;
+		num_of_chunks_to_access += (n_temp / superblock->chunk_size);
+	}
+
+	//first chunk
+	if(n > num_bytes_till_end_of_chunk){
+		bytes_to_read_in_first_iteration = num_bytes_till_end_of_chunk;
+		n -= bytes_to_read_in_first_iteration;
+	}else{
+		bytes_to_read_in_first_iteration = n;
+	}
+	chunk = resolve_indirection(chunk_number);
+	std::memcpy(buf, (void*)chunk->get(), bytes_to_read_in_first_iteration);
+	buf += bytes_to_read_in_first_iteration;
+	chunk_number++;
+
+	//middle chunk
+	if(num_of_chunks_to_access > 2){
+		for(i = 1; i < (num_of_chunks_to_access - 1); i++){
+			chunk = resolve_indirection(chunk_number);
+			std::memcpy(buf, (void*)chunk->get(), chunk->chunk_size);
+			buf += chunk->chunk_size;
+			chunk_number++;
+			n -= chunk->chunk_size;
 		}
+	}
 
-		for(i = 0; i < num_of_chunks_to_access; i++){
-			if(n <= num_bytes_till_end_of_chunk){
-				bytes_to_read = n;
-			}else{
-				bytes_to_read = num_bytes_till_end_of_chunk;
-			}
-			n -= bytes_to_read;
-
-			//split into function
-			chunk = disk->get_chunk(chunk_number);
-			std::memcpy((void*)chunk->get(), buf, bytes_to_read);
-			chunk_number += 1;
-			byte_offset = 0;
-			starting_offset_chunk = chunk_number * superblock->chunk_size;
-			ending_offset_chunk = starting_offset_chunk + superblock->chunk_size - 1;
-			num_bytes_till_end_of_chunk = superblock->chunk_size - byte_offset;
-		}
-		*/
-		return 0;
+	//last chunk
+	if(num_of_chunks_to_access != 1){
+		chunk = resolve_indirection(chunk_number);
+		std::memcpy((void*)chunk->get(), buf, n);
+	}
+	
+	return n_copy;
 }
 
 std::shared_ptr<Chunk> INode::resolve_indirection(uint64_t chunk_number) const {
