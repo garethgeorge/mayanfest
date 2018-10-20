@@ -59,41 +59,46 @@ uint64_t INode::read(uint64_t starting_offset, char *buf, uint64_t n) const {
 		return 0;
 }
 
-std::shared_ptr<Chunk> INode::resolve_indirection(uint64_t chunk_number) const {
-		const uint64_t num_chunk_address_per_chunk = superblock->disk_chunk_size / sizeof(uint64_t);
-		uint64_t indirect_address_count = 1;
-	
-		const uint64_t *indirect_table = data.addresses;
-		for(uint64_t indirection = 0; indirection < sizeof(INDIRECT_TABLE_SIZES) / sizeof(uint64_t); indirection++){
-			if(chunk_number < (indirect_address_count * INDIRECT_TABLE_SIZES[indirection])){
-				uint64_t next_chunk_loc = indirect_table[chunk_number / indirect_address_count];
-				if(next_chunk_loc == 0){
-					return nullptr;
-				}
-				auto chunk = superblock->disk->get_chunk(next_chunk_loc);
-				while(indirection != 0){
-					uint64_t *lookup_table = (uint64_t *)chunk->data.get();
-					next_chunk_loc = lookup_table[chunk_number % indirect_address_count];
-					if(next_chunk_loc == 0){
-						return nullptr;
-					}
-					indirect_address_count /= num_chunk_address_per_chunk;
-					chunk = superblock->disk->get_chunk(next_chunk_loc);
-					indirection--;
-				}
-				return chunk;
-			}
-			chunk_number -= (indirect_address_count * INDIRECT_TABLE_SIZES[indirection]);
-			indirect_table += INDIRECT_TABLE_SIZES[indirection];
-			indirect_address_count *= num_chunk_address_per_chunk;
-		}
-		return nullptr;
-	}
+std::shared_ptr<Chunk> INode::resolve_indirection(uint64_t chunk_number) {
+    const uint64_t num_chunk_address_per_chunk = superblock->disk_chunk_size / sizeof(uint64_t);
+    uint64_t indirect_address_count = 1;
 
-INodeTable::INodeTable(SuperBlock *superblock) : superblock(superblock) {
-    inode_table_size_chunks = superblock->inode_table_size_chunks;
-    inode_table_offset = superblock->inode_table_offset;
-    inodes_per_chunk = superblock->disk_chunk_size / sizeof(INode);
+    uint64_t *indirect_table = data.addresses;
+    for(uint64_t indirection = 0; indirection < sizeof(INDIRECT_TABLE_SIZES) / sizeof(uint64_t); indirection++){
+        if(chunk_number < (indirect_address_count * INDIRECT_TABLE_SIZES[indirection])){
+            uint64_t next_chunk_loc = indirect_table[chunk_number / indirect_address_count];
+            if(next_chunk_loc == 0){
+                std::shared_ptr<Chunk> chunk = this->superblock->allocate_chunk();
+                std::memset((void *)chunk->data.get(), 0, chunk->size_bytes);
+                indirect_table[chunk_number / indirect_address_count] = chunk->chunk_idx;
+            }
+            auto chunk = superblock->disk->get_chunk(next_chunk_loc);
+            while(indirection != 0){
+                uint64_t *lookup_table = (uint64_t *)chunk->data.get();
+                next_chunk_loc = lookup_table[chunk_number / indirect_address_count];
+                if(next_chunk_loc == 0) {
+                    std::shared_ptr<Chunk> chunk = this->superblock->allocate_chunk();
+                    std::memset((void *)chunk->data.get(), 0, chunk->size_bytes);
+                    lookup_table[chunk_number / indirect_address_count] = chunk->chunk_idx;
+                } else {
+                    chunk = superblock->disk->get_chunk(next_chunk_loc);
+                }
+                indirect_address_count /= num_chunk_address_per_chunk;
+                indirection--;
+            }
+            return chunk;
+        }
+        chunk_number -= (indirect_address_count * INDIRECT_TABLE_SIZES[indirection]);
+        indirect_table += INDIRECT_TABLE_SIZES[indirection];
+        indirect_address_count *= num_chunk_address_per_chunk;
+    }
+    return nullptr;
+}
+
+INodeTable::INodeTable(SuperBlock *superblock, uint64_t offset, uint64_t size) : superblock(superblock) {
+    inode_table_size_chunks = size;
+    inode_table_offset = offset;
+    inodes_per_chunk = superblock->disk_chunk_size / sizeof(INode::INodeData);
 
     used_inodes = std::unique_ptr<DiskBitMap>(
         new DiskBitMap(superblock->disk, inode_table_offset, inode_count)
@@ -151,32 +156,44 @@ SuperBlock::SuperBlock(Disk *disk)
 }
 
 void SuperBlock::init(double inode_table_size_rel_to_disk) {
-    //size of things in chunks
+    //requested size of things in chunks
     disk_block_map_size_chunks = std::ceil( ((double)disk_size_chunks) / (8*disk_chunk_size) );
     inode_table_size_chunks = inode_table_size_rel_to_disk * disk_size_chunks;
     
+    std::cout << "Offset " << inode_table_offset << std::endl;
+
+    std::cout << "disk block map size in chunks is " << disk_block_map_size_chunks << std::endl;
+    std::cout << "inode table size in chunks is " << inode_table_size_chunks << std::endl;
+
     //check that metadata isn't too big
     if(disk_block_map_size_chunks + inode_table_size_chunks + disk_block_map_size_chunks >= disk_size_chunks) {
         throw new FileSystemException("Requested size of superblock, inode table, and bit map exceeds size of disk");
     }
 
-    //write offsets of structures to superblock
-    disk_block_map_offset = superblock_size_chunks;
-    inode_table_offset = superblock_size_chunks + disk_block_map_size_chunks;
-    data_offset = superblock_size_chunks + disk_block_map_size_chunks + inode_table_size_chunks;
-
-    //create the disk block map
-    disk_block_map = std::unique_ptr<DiskBitMap>(new DiskBitMap(disk, disk_block_map_offset, disk_block_map_size_chunks));
+    //block map init
+    disk_block_map_offset = superblock_size_chunks; 
+    return;    disk_block_map = std::unique_ptr<DiskBitMap>(new DiskBitMap(disk, disk_block_map_offset, disk_block_map_size_chunks));
     disk_block_map->clear_all();
+    //get actual size of the block map made
+    disk_block_map_size_chunks = disk_block_map->size_chunks();
+
+    //create inode table
+    inode_table_offset = superblock_size_chunks + disk_block_map_size_chunks;
+    inode_table = std::unique_ptr<INodeTable>(new INodeTable(this, inode_table_offset, inode_table_size_chunks));
+    inode_table->format_inode_table();
+    inode_table_size_chunks = inode_table->size_chunks();
+
+    //free space
+    data_offset = superblock_size_chunks + disk_block_map_size_chunks + inode_table_size_chunks;
 
     //set all metadata chunk bits to `used'
     for(uint64_t bit_i = 0; bit_i < disk_block_map_size_chunks + disk_block_map_size_chunks + inode_table_size_chunks; ++bit_i) {
         disk_block_map->set(bit_i);
     }
 
-    //create inode table
-    inode_table = std::unique_ptr<INodeTable>(new INodeTable(this));
-    inode_table->format_inode_table();
+    std::cout << "What's new guys?" << std::endl;
+
+    
 
     //serialize to disk
     if(superblock_size_chunks != 1) {
@@ -226,7 +243,8 @@ void SuperBlock::load_from_disk(Disk * disk) {
     offset += sizeof(uint64_t);
     data_offset = *(uint64_t *)(sb_data+offset);
     
-    disk_block_map = std::unique_ptr<DiskBitMap>(new DiskBitMap(disk, disk_block_map_offset, disk_block_map_size_chunks));
-    inode_table = std::unique_ptr<INodeTable>(new INodeTable(this));
+    //TODO: Deserialize these properly
+    //disk_block_map = std::unique_ptr<DiskBitMap>(new DiskBitMap(disk, disk_block_map_offset, disk_block_map_size_chunks));
+    //inode_table = std::unique_ptr<INodeTable>(new INodeTable(this, ));
 }
 
