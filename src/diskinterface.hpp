@@ -215,31 +215,9 @@ struct DiskBitMap {
 	};
 
 	static std::array<BitRange, 256> find_unset_cache;
+	static uint64_t find_last_byte_idx;
 	
-	BitRange find_unset_bits(Size length) {
-		BitRange retval;
-		for (Size idx = 0; idx < this->size_in_bits; idx += 8) {
-			const size_t byte = (size_t)this->get_byte_for_idx(idx);
-			BitRange res = find_unset_cache[byte];
-			res.start_idx += idx;
-
-			// if retval already set, the next set of bits must start immediately where the last one ends
-			if (retval.bit_count != 0 && res.start_idx != retval.start_idx + retval.bit_count) {
-				break ;
-			}
-
-			if (res.bit_count != 0) {
-				// bitcount should be limited to the length requested
-				if (res.bit_count > length) {
-					res.bit_count = length;
-				}
-					
-				return res;
-			}
-		}
-
-		return BitRange();
-	}
+	BitRange find_unset_bits(Size length) const;
 };
 
 

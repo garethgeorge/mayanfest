@@ -65,7 +65,6 @@ TEST_CASE( "Disk bitmap should work", "[bitmap]" ) {
 	constexpr size_t bitmap_size = 32;
 
 	SECTION("clearing the chunk should leave it initialized as all 0's") {
-		std::cout << "TRYING TO CLEAR ALL" << std::endl;
 		std::unique_ptr<Disk> disk(new Disk(256, 16));
 		std::unique_ptr<DiskBitMap> bitmap(new DiskBitMap(disk.get(), 0, bitmap_size));
 		bitmap->clear_all();
@@ -134,7 +133,54 @@ TEST_CASE( "Disk bitmap should work", "[bitmap]" ) {
 		range.set_range(*bitmap2);
 
 		auto range2 = bitmap2->find_unset_bits(8);
-		REQUIRE(range.bit_count == 0);
-		REQUIRE(range.start_idx == 0);
+		REQUIRE(range2.bit_count == 0);
+		REQUIRE(range2.start_idx == 0);
+	}
+
+	SECTION("should be able to allocate a large, weird, number of bits") {
+		std::unique_ptr<Disk> disk(new Disk(256, 4));
+		std::unique_ptr<DiskBitMap> bitmap2(new DiskBitMap(disk.get(), 13, 93));
+
+		{
+			bitmap2->clear_all();
+
+			auto range = bitmap2->find_unset_bits(93);
+			REQUIRE(range.bit_count == 93);
+			REQUIRE(range.start_idx == 0);
+			range.set_range(*bitmap2);
+
+			auto range2 = bitmap2->find_unset_bits(8);
+			REQUIRE(range2.bit_count == 0);
+			REQUIRE(range2.start_idx == 0);
+		}
+		
+
+		{
+			bitmap2->clear_all();
+
+			auto range = bitmap2->find_unset_bits(102);
+			REQUIRE(range.bit_count == 93);
+			REQUIRE(range.start_idx == 0);
+			range.set_range(*bitmap2);
+
+			auto range2 = bitmap2->find_unset_bits(8);
+			REQUIRE(range2.bit_count == 0);
+			REQUIRE(range2.start_idx == 0);
+		}
+
+		{
+			bitmap2->clear_all();
+
+			auto range = bitmap2->find_unset_bits(53);
+			REQUIRE(range.bit_count == 53);
+			REQUIRE(range.start_idx == 0);
+			range.set_range(*bitmap2);
+
+			auto range2 = bitmap2->find_unset_bits(1000);
+			REQUIRE(range2.bit_count == 93-53);
+			REQUIRE(range2.start_idx == 53);
+		}
+
+		
 	}
 }

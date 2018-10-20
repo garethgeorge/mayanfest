@@ -78,3 +78,38 @@ static bool bitmap_init_cache(std::array<DiskBitMap::BitRange, 256>& cache) {
 }
 
 static bool find_unset_cache_initialized = bitmap_init_cache(DiskBitMap::find_unset_cache);
+
+DiskBitMap::BitRange DiskBitMap::find_unset_bits(Size length) const {
+	using BitRange = DiskBitMap::BitRange;
+	
+	BitRange retval;
+	for (Size idx = 0; idx < this->size_in_bits; idx += 8) {
+		const size_t byte = (size_t)this->get_byte_for_idx(idx);
+		BitRange res = find_unset_cache[byte];
+		res.start_idx += idx;
+
+		// if retval already set, the next set of bits must start immediately where the last one ends
+		if (retval.bit_count != 0 && res.start_idx != retval.start_idx + retval.bit_count) {
+			break ;
+		}
+
+		if (res.bit_count != 0) {
+			if (retval.bit_count == 0) {
+				retval = res;
+			} else {
+				retval.bit_count += res.bit_count;
+			}
+			
+			if (retval.bit_count >= length) {
+				break;
+			}
+		}
+	}
+
+	// bitcount should be limited to the length requested
+	if (retval.bit_count > length) {
+		retval.bit_count = length;
+	}
+
+	return retval;
+}
