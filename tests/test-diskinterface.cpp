@@ -58,7 +58,6 @@ TEST_CASE( "Disk interface should work", "[diskinterface]" ) {
 			REQUIRE(refB->data.get()[0] == 1);
 		}
 	}
-
 }
 
 TEST_CASE( "Disk bitmap should work", "[bitmap]" ) {
@@ -180,7 +179,5 @@ TEST_CASE( "Disk bitmap should work", "[bitmap]" ) {
 			REQUIRE(range2.bit_count == 93-53);
 			REQUIRE(range2.start_idx == 53);
 		}
-
-		
 	}
 }

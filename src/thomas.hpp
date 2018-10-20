@@ -45,6 +45,7 @@ struct SuperBlock {
         //create the disk block map
         disk_block_map = std::unique_ptr<DiskBitMap>(new DiskBitMap(disk, disk_block_map_offset, disk_block_map_size_chunks));
         disk_block_map->clear_all();
+
         //set all metadata chunk bits to `used'
         for(uint_64_t bit_i = 0; bit_i < disk_block_map_size_chunks + dbm_size + inot_size; ++bit_i) {
             disk_block_map->set(bit_i);
@@ -52,17 +53,58 @@ struct SuperBlock {
 
         //create inode table
         inode_table = std::unique_ptr<INodeTable>(new INodeTable(this));
+		inode_table->format_inode_table();
 
         //serialize to disk
         if(superblock_size_chunks != 1) {
             throw new FileSystemException("superblock size > 1 chunk not supported!");
         }
         auto sb_chunk = disk->get_chunk(0);
-		auto sb_data = sb_chunk->
+		auto sb_data = sb_chunk->data;
+		int offset = 0;
+		*(uint_64_t *)(sb_data+offset) = superblock_size_chunks;
+		offset += sizeof(uint_64_t);
+		*(uint_64_t *)(sb_data+offset) = disk_size_bytes;
+		offset += sizeof(uint_64_t);
+		*(uint_64_t *)(sb_data+offset) = disk_size_chunks;
+		offset += sizeof(uint_64_t);
+		*(uint_64_t *)(sb_data+offset) = disk_chunk_size;
+		offset += sizeof(uint_64_t);
+		*(uint_64_t *)(sb_data+offset) = disk_block_map_offset;
+		offset += sizeof(uint_64_t);
+		*(uint_64_t *)(sb_data+offset) = disk_block_map_size_chunks;
+		offset += sizeof(uint_64_t);
+		*(uint_64_t *)(sb_data+offset) = inode_table_offset;
+		offset += sizeof(uint_64_t);
+		*(uint_64_t *)(sb_data+offset) = inode_table_size_chunks;
+		offset += sizeof(uint_64_t);
+		*(uint_64_t *)(sb_data+offset) = data_offset;
 	}
 
-    void load() {
-        
+    void load_from_disk(Disk * disk) {
+        auto sb_chunk = disk->get_chunk(0);
+		auto sb_data = sb_chunk->data;
+		int offset = 0;
+		superblock_size_chunks = *(uint_64_t *)(sb_data + offset);
+		offset += sizeof(uint_64_t);
+		disk_size_bytes = *(uint_64_t *)(sb_data+offset);
+		offset += sizeof(uint_64_t);
+		disk_size_chunks = *(uint_64_t *)(sb_data+offset);
+		offset += sizeof(uint_64_t);
+		disk_chunk_size = *(uint_64_t *)(sb_data+offset);
+		offset += sizeof(uint_64_t);
+		disk_block_map_offset = *(uint_64_t *)(sb_data+offset);
+		offset += sizeof(uint_64_t);
+		disk_block_map_size_chunks = *(uint_64_t *)(sb_data+offset);
+		offset += sizeof(uint_64_t);
+		inode_table_offset = *(uint_64_t *)(sb_data+offset);
+		offset += sizeof(uint_64_t);
+		inode_table_size_chunks = *(uint_64_t *)(sb_data+offset);
+		offset += sizeof(uint_64_t);
+		data_offset = *(uint_64_t *)(sb_data+offset);
+		
+		disk_block_map = std::unique_ptr<DiskBitMap>(new DiskBitMap(disk, disk_block_map_offset, disk_block_map_size_chunks));
+		inode_table = std::unique_ptr<INodeTable>(new INodeTable(this));
     }
 };
 

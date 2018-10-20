@@ -3,9 +3,9 @@ CC=g++
 CPPFLAGS= -std=c++11 -g -O0 
 CFLAGS= 
 
-OBJS=src/diskinterface.o 
+OBJS=src/diskinterface.o src/filesystem.o
 INCLUDES=-I ./3rdparty/ -I ./src/
-TEST_OBJS=tests/test-diskinterface.o
+TEST_OBJS=tests/test-diskinterface.o tests/test-filesystem.o
 
 all: test
 
