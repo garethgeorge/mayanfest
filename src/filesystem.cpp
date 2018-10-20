@@ -9,17 +9,86 @@
 
 using Size = uint64_t;
 
-uint64_t INode::read(uint64_t starting_offset, char *buf, uint64_t n) {
-    uint64_t chunk_number = starting_offset / superblock->disk_chunk_size;
-    uint64_t byte_offset = starting_offset % superblock->disk_chunk_size;
-    //split into function
-    if(chunk_number < 8){ //access direct blocks
-        
-    }else if(chunk_number < (8 + (superblock->disk_chunk_size / sizeof(uint64_t)))){//change to var
-        
-    }
-    throw FileSystemException("Not Implemented");														
+const uint64_t INode::INDIRECT_TABLE_SIZES[4] = {DIRECT_ADDRESS_COUNT, INDIRECT_ADDRESS_COUNT, DOUBLE_INDIRECT_ADDRESS_COUNT, TRIPPLE_INDIRECT_ADDRESS_COUNT};
+
+uint64_t INode::read(uint64_t starting_offset, char *buf, uint64_t n) const {
+    /*
+		uint64_t chunk_number; //index of chunk
+		uint64_t byte_offset; //index of byte within that chunk
+		uint64_t starting_offset_chunk; //starting byte offset of chunk
+		uint64_t ending_offset_chunk; //ending byte offset of chunk
+		uint64_t num_chunk_address_per_chunk = superblock->chunk_size / sizeof(uint64_t);
+		uint64_t num_bytes_till_end_of_chunk; //including byte_offset
+		uint64_t num_of_chunks_to_access; //number of chunks to access
+		uint64_t i; //loop counter
+		uint64_t bytes_to_read;
+		std::shared_ptr<Chunk> chunk;
+
+		//setup info for first chunk
+		chunk_number = starting_offset / superblock->chunk_size;
+		byte_offset = starting_offset % superblock->chunk_size;
+		starting_offset_chunk = chunk_number * superblock->chunk_size;
+		ending_offset_chunk = starting_offset_chunk + superblock->chunk_size - 1;
+		num_bytes_till_end_of_chunk = superblock->chunk_size - byte_offset;
+
+		//find number of chunks to access
+		num_of_chunks_to_access = 1;
+		if(n > num_bytes_till_end_of_chunk){
+			n_temp = n - num_bytes_till_end_of_chunk;
+			num_of_chunks_to_access += (n_temp / superblock->chunk_size);
+		}
+
+		for(i = 0; i < num_of_chunks_to_access; i++){
+			if(n <= num_bytes_till_end_of_chunk){
+				bytes_to_read = n;
+			}else{
+				bytes_to_read = num_bytes_till_end_of_chunk;
+			}
+			n -= bytes_to_read;
+
+			//split into function
+			chunk = disk->get_chunk(chunk_number);
+			std::memcpy((void*)chunk->get(), buf, bytes_to_read);
+			chunk_number += 1;
+			byte_offset = 0;
+			starting_offset_chunk = chunk_number * superblock->chunk_size;
+			ending_offset_chunk = starting_offset_chunk + superblock->chunk_size - 1;
+			num_bytes_till_end_of_chunk = superblock->chunk_size - byte_offset;
+		}
+		*/
+		return 0;
 }
+
+std::shared_ptr<Chunk> INode::resolve_indirection(uint64_t chunk_number) const {
+		const uint64_t num_chunk_address_per_chunk = superblock->disk_chunk_size / sizeof(uint64_t);
+		uint64_t indirect_address_count = 1;
+	
+		const uint64_t *indirect_table = data.addresses;
+		for(uint64_t indirection = 0; indirection < sizeof(INDIRECT_TABLE_SIZES) / sizeof(uint64_t); indirection++){
+			if(chunk_number < (indirect_address_count * INDIRECT_TABLE_SIZES[indirection])){
+				uint64_t next_chunk_loc = indirect_table[chunk_number / indirect_address_count];
+				if(next_chunk_loc == 0){
+					return nullptr;
+				}
+				auto chunk = superblock->disk->get_chunk(next_chunk_loc);
+				while(indirection != 0){
+					uint64_t *lookup_table = (uint64_t *)chunk->data.get();
+					next_chunk_loc = lookup_table[chunk_number % indirect_address_count];
+					if(next_chunk_loc == 0){
+						return nullptr;
+					}
+					indirect_address_count /= num_chunk_address_per_chunk;
+					chunk = superblock->disk->get_chunk(next_chunk_loc);
+					indirection--;
+				}
+				return chunk;
+			}
+			chunk_number -= (indirect_address_count * INDIRECT_TABLE_SIZES[indirection]);
+			indirect_table += INDIRECT_TABLE_SIZES[indirection];
+			indirect_address_count *= num_chunk_address_per_chunk;
+		}
+		return nullptr;
+	}
 
 INodeTable::INodeTable(SuperBlock *superblock) : superblock(superblock) {
     inode_table_size_chunks = superblock->inode_table_size_chunks;
@@ -53,7 +122,8 @@ INode INodeTable::get_inode(uint64_t idx) {
     uint64_t chunk_idx = idx / inodes_per_chunk;
     uint64_t chunk_offset = idx % inodes_per_chunk;
     std::shared_ptr<Chunk> chunk = superblock->disk->get_chunk(chunk_idx);
-    std::memcpy((void *)(&node), chunk->data.get() + sizeof(INode) * chunk_offset, sizeof(INode));
+    std::memcpy((void *)(&(node.data)), chunk->data.get() + sizeof(INode::INodeData) * chunk_offset, sizeof(INode::INodeData));
+    node.superblock = this->superblock;
     return node;
 }
 
@@ -62,11 +132,10 @@ void INodeTable::set_inode(uint64_t idx, INode &node) {
         throw FileSystemException("INode index out of bounds");
     used_inodes->set(idx);
 
-    INode node;
     uint64_t chunk_idx = idx / inodes_per_chunk;
     uint64_t chunk_offset = idx % inodes_per_chunk;
     std::shared_ptr<Chunk> chunk = superblock->disk->get_chunk(chunk_idx);
-    std::memcpy((void *)(chunk->data.get() + sizeof(INode) * chunk_offset), (void *)(&node), sizeof(INode));
+    std::memcpy((void *)(chunk->data.get() + sizeof(INode::INodeData) * chunk_offset), (void *)(&(node.data)), sizeof(INode::INodeData));
 }
 
 void INodeTable::free_inode(uint64_t idx) {
@@ -83,7 +152,7 @@ SuperBlock::SuperBlock(Disk *disk)
 
 void SuperBlock::init(double inode_table_size_rel_to_disk) {
     //size of things in chunks
-    disk_block_map_size_chunks = std::ceil(((double)disk_size_chunks)/(8*disk_chunk_size);
+    disk_block_map_size_chunks = std::ceil( ((double)disk_size_chunks) / (8*disk_chunk_size) );
     inode_table_size_chunks = inode_table_size_rel_to_disk * disk_size_chunks;
     
     //check that metadata isn't too big
@@ -114,7 +183,7 @@ void SuperBlock::init(double inode_table_size_rel_to_disk) {
         throw new FileSystemException("superblock size > 1 chunk not supported!");
     }
     auto sb_chunk = disk->get_chunk(0);
-    auto sb_data = sb_chunk->data->get();
+    auto sb_data = sb_chunk->data.get();
     int offset = 0;
     *(uint64_t *)(sb_data+offset) = superblock_size_chunks;
     offset += sizeof(uint64_t);
@@ -137,7 +206,7 @@ void SuperBlock::init(double inode_table_size_rel_to_disk) {
 
 void SuperBlock::load_from_disk(Disk * disk) {
     auto sb_chunk = disk->get_chunk(0);
-    auto sb_data = sb_chunk->data->get();
+    auto sb_data = sb_chunk->data.get();
     int offset = 0;
     //superblock_size_chunks = *(uint64_t *)(sb_data + offset);
     offset += sizeof(uint64_t);
