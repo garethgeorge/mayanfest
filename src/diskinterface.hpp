@@ -152,13 +152,22 @@ struct DiskBitMap {
 	}
 
 	void clear_all() {
+		std::cout << "\tIN CLEAR ALL" << std::endl;
 		for (std::shared_ptr<Chunk>& chunk : chunks) {
+			std::cout << "\t\ttrying to clear a chunk" << std::endl;
+			std::cout << "\t\tclearing chunk: " << chunk->chunk_idx << "/" << this->chunks.size() << std::endl;
+			std::cout << "\t\t\tchunk size in bytes is: " << chunk->size_bytes << std::endl;
+			std::cout << "\t\t\tchunk data address is:" << (unsigned long long)chunk->data.get() << std::endl;
 			std::memset(chunk->data.get(), 0, chunk->size_bytes);
 		}
+
+		std::cout << "\tDONE, NOW SETTING BITMAP VALUES" << std::endl;
 
 		for (uint64_t idx = this->size_in_bits; idx < this->size_in_bits + 8; ++idx) {
 			this->set(idx);
 		}
+
+		std::cout << "\tOUT CLEAR ALL" << std::endl;
 	}
 
 	Size size_bytes() const {

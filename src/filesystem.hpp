@@ -45,7 +45,9 @@ struct SuperBlock {
 
 	std::shared_ptr<Chunk> allocate_chunk() {
 		DiskBitMap::BitRange range = this->disk_block_map->find_unset_bits(1);
-		assert(range.bit_count == 1);
+		if (range.bit_count != 1) {
+			throw FileSystemException("FileSystem out of space -- unable to allocate a new chunk");
+		}
 
 		std::shared_ptr<Chunk> chunk = this->disk->get_chunk(range.start_idx);
 		this->disk_block_map->set(range.start_idx);
@@ -59,14 +61,7 @@ struct FileSystem {
 	std::unique_ptr<SuperBlock> superblock;
 
 	// the file system, once constructed, takes ownership of the disk
-	FileSystem(Disk *disk) {
-		// DOES THE STUFF TO CONSTRUCT THE THINGS
-		this->disk = disk;		
-		superblock = std::unique_ptr<SuperBlock>(new SuperBlock(disk));
-	}
-
-	void init(double inode_table_size_rel_to_disk = 0.1) {
-		superblock->init(inode_table_size_rel_to_disk);
+	FileSystem(Disk *disk) : disk(disk), superblock(new SuperBlock(disk)) {
 	}
 };
 
