@@ -25,7 +25,7 @@ std::shared_ptr<Chunk> Disk::get_chunk(Size chunk_idx) {
 	chunk->parent = this; 
 	chunk->size_bytes = this->chunk_size();
 	chunk->chunk_idx = chunk_idx;
-	chunk->data = std::unique_ptr<Byte[]>(new Byte);
+	chunk->data = std::unique_ptr<Byte[]>(new Byte[this->chunk_size()]);
 	std::memcpy(chunk->data.get(), this->data.get() + chunk_idx * this->chunk_size(), 
 		this->chunk_size());
 
