@@ -9,6 +9,9 @@
 #include <array>
 #include <iostream>
 
+#include <cstring>
+#include <memory>
+
 typedef uint8_t Byte;
 typedef uint64_t Size;
 
