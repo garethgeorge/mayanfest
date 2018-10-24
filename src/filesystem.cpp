@@ -196,7 +196,7 @@ void INodeTable::format_inode_table() {
 
 // returns the size of the entire table in chunks
 uint64_t INodeTable::size_chunks() {
-    return used_inodes->size_chunks() + inode_count;
+    return used_inodes->size_chunks() + inode_table_size_chunks;
 }
 
 INode INodeTable::get_inode(uint64_t idx) {
@@ -269,8 +269,8 @@ void SuperBlock::init(double inode_table_size_rel_to_disk) {
     //free space
     data_offset = superblock_size_chunks + disk_block_map_size_chunks + inode_table_size_chunks;
 
-    //set all metadata chunk bits to `used'
-    for(uint64_t bit_i = 0; bit_i < disk_block_map_size_chunks + disk_block_map_size_chunks + inode_table_size_chunks; ++bit_i) {
+    // set all metadata chunk bits to `used'
+    for(uint64_t bit_i = 0; bit_i < disk_block_map_size_chunks + inode_table_size_chunks; ++bit_i) {
         disk_block_map->set(bit_i);
     }
 
