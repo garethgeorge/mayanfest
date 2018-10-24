@@ -46,6 +46,7 @@ struct SuperBlock {
 	std::shared_ptr<Chunk> allocate_chunk() {
 		DiskBitMap::BitRange range = this->disk_block_map->find_unset_bits(1);
 		if (range.bit_count != 1) {
+			std::cout << "AHHHH!!!!! The bit count is " << range.bit_count << std::endl;
 			throw FileSystemException("FileSystem out of space -- unable to allocate a new chunk");
 		}
 
@@ -125,6 +126,7 @@ struct INode {
 	// that have not been written but that ARE within the size of the file,
 	// TODO: possibly be smart about this
 	uint64_t read(uint64_t starting_offset, char *buf, uint64_t n);
+	uint64_t write(uint64_t starting_offset, const char *buf, uint64_t n);
 };
 
 #endif

@@ -22,7 +22,7 @@ uint64_t INode::read(uint64_t starting_offset, char *buf, uint64_t n) {
 	uint64_t i; //loop counter
 	uint64_t bytes_to_read;
 	uint64_t n_copy;
-    uint64_t bytes_to_read_in_first_iteration;
+        uint64_t bytes_to_read_in_first_iteration;
 	std::shared_ptr<Chunk> chunk = nullptr;
 
 	if((starting_offset + n) > data.file_size){
@@ -61,6 +61,71 @@ uint64_t INode::read(uint64_t starting_offset, char *buf, uint64_t n) {
 		for(i = 1; i < (num_of_chunks_to_access - 1); i++){
 			chunk = resolve_indirection(chunk_number);
 			std::memcpy(buf, (void*)chunk.get(), chunk->size_bytes);
+			buf += chunk->size_bytes;
+			chunk_number++;
+			n -= chunk->size_bytes;
+		}
+	}
+
+	//last chunk
+	if(num_of_chunks_to_access != 1){
+		chunk = resolve_indirection(chunk_number);
+		std::memcpy((void*)chunk.get(), buf, n);
+	}
+	
+	return n_copy;
+}
+
+uint64_t INode::write(uint64_t starting_offset, const char *buf, uint64_t n) {
+	uint64_t chunk_number; //index of chunk
+	uint64_t byte_offset; //index of byte within that chunk
+	uint64_t starting_offset_chunk; //starting byte offset of chunk
+	uint64_t ending_offset_chunk; //ending byte offset of chunk
+	uint64_t num_chunk_address_per_chunk = superblock->disk_chunk_size / sizeof(uint64_t);
+	uint64_t num_bytes_till_end_of_chunk; //including byte_offset
+	uint64_t num_of_chunks_to_access; //number of chunks to access
+	uint64_t i; //loop counter
+	uint64_t bytes_to_write;
+	uint64_t n_copy;
+        uint64_t bytes_to_write_in_first_iteration;
+	std::shared_ptr<Chunk> chunk = nullptr;
+
+	if((starting_offset + n) > data.file_size){
+		n = data.file_size - starting_offset;
+	}
+	n_copy = n;
+
+	//setup info for first chunk
+	chunk_number = starting_offset / superblock->disk_chunk_size;
+	byte_offset = starting_offset % superblock->disk_chunk_size;
+	starting_offset_chunk = chunk_number * superblock->disk_chunk_size;
+	ending_offset_chunk = starting_offset_chunk + superblock->disk_chunk_size - 1;
+	num_bytes_till_end_of_chunk = superblock->disk_chunk_size - byte_offset;
+
+	//find number of chunks to access
+	num_of_chunks_to_access = 1;
+	if(n > num_bytes_till_end_of_chunk){
+		uint64_t n_temp = n - num_bytes_till_end_of_chunk;
+		num_of_chunks_to_access += (n_temp / superblock->disk_chunk_size);
+	}
+
+	//first chunk
+	if(n > num_bytes_till_end_of_chunk){
+		bytes_to_write_in_first_iteration = num_bytes_till_end_of_chunk;
+		n -= bytes_to_write_in_first_iteration;
+	}else{
+		bytes_to_write_in_first_iteration = n;
+	}
+	chunk = this->resolve_indirection(chunk_number);
+	std::memcpy((void*)chunk.get(), buf, bytes_to_write_in_first_iteration);
+	buf += bytes_to_write_in_first_iteration;
+	chunk_number++;
+
+	//middle chunk
+	if(num_of_chunks_to_access > 2){
+		for(i = 1; i < (num_of_chunks_to_access - 1); i++){
+			chunk = resolve_indirection(chunk_number);
+			std::memcpy((void*)chunk.get(), buf, chunk->size_bytes);
 			buf += chunk->size_bytes;
 			chunk_number++;
 			n -= chunk->size_bytes;
