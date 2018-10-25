@@ -118,7 +118,7 @@ struct INode {
 	};
 
 	INodeData data;
-	SuperBlock *superblock;	
+	SuperBlock *superblock = nullptr;	
 
 	std::shared_ptr<Chunk> resolve_indirection(uint64_t chunk_number);
 

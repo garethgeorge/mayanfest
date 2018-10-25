@@ -6,6 +6,8 @@
 #include "diskinterface.hpp"
 #include "filesystem.hpp"
 
+#define DEBUG
+
 
 using Size = uint64_t;
 
@@ -87,14 +89,16 @@ uint64_t INode::write(uint64_t starting_offset, const char *buf, uint64_t n) {
 	uint64_t i; //loop counter
 	uint64_t bytes_to_write;
 	uint64_t n_copy;
-        uint64_t bytes_to_write_in_first_iteration;
+    uint64_t bytes_to_write_in_first_iteration;
 	std::shared_ptr<Chunk> chunk = nullptr;
 
+    fprintf(stdout, "PRINT #1\n");
 	if((starting_offset + n) > data.file_size){
-		n = data.file_size - starting_offset;
+        data.file_size = starting_offset + n;
 	}
 	n_copy = n;
 
+    fprintf(stdout, "PRINT #2\n");
 	//setup info for first chunk
 	chunk_number = starting_offset / superblock->disk_chunk_size;
 	byte_offset = starting_offset % superblock->disk_chunk_size;
@@ -102,12 +106,15 @@ uint64_t INode::write(uint64_t starting_offset, const char *buf, uint64_t n) {
 	ending_offset_chunk = starting_offset_chunk + superblock->disk_chunk_size - 1;
 	num_bytes_till_end_of_chunk = superblock->disk_chunk_size - byte_offset;
 
+    fprintf(stdout, "PRINT #3\n");
 	//find number of chunks to access
 	num_of_chunks_to_access = 1;
 	if(n > num_bytes_till_end_of_chunk){
 		uint64_t n_temp = n - num_bytes_till_end_of_chunk;
 		num_of_chunks_to_access += (n_temp / superblock->disk_chunk_size);
 	}
+
+    fprintf(stdout, "PRINT #4\n");
 
 	//first chunk
 	if(n > num_bytes_till_end_of_chunk){
@@ -116,14 +123,19 @@ uint64_t INode::write(uint64_t starting_offset, const char *buf, uint64_t n) {
 	}else{
 		bytes_to_write_in_first_iteration = n;
 	}
+
+    fprintf(stdout, "PRINT #5\n");
 	chunk = this->resolve_indirection(chunk_number);
+    fprintf(stdout, "PRINT #6\n");
 	std::memcpy((void*)chunk.get(), buf, bytes_to_write_in_first_iteration);
 	buf += bytes_to_write_in_first_iteration;
 	chunk_number++;
 
+    fprintf(stdout, "PRINT #7\n");
 	//middle chunk
 	if(num_of_chunks_to_access > 2){
 		for(i = 1; i < (num_of_chunks_to_access - 1); i++){
+            fprintf(stdout, "PRINT #8\n");
 			chunk = resolve_indirection(chunk_number);
 			std::memcpy((void*)chunk.get(), buf, chunk->size_bytes);
 			buf += chunk->size_bytes;
@@ -131,12 +143,15 @@ uint64_t INode::write(uint64_t starting_offset, const char *buf, uint64_t n) {
 			n -= chunk->size_bytes;
 		}
 	}
+    fprintf(stdout, "PRINT #9\n");
 
 	//last chunk
 	if(num_of_chunks_to_access != 1){
+        fprintf(stdout, "PRINT #10\n");
 		chunk = resolve_indirection(chunk_number);
 		std::memcpy((void*)chunk.get(), buf, n);
 	}
+    fprintf(stdout, "PRINT #11\n");
 	
 	return n_copy;
 }
@@ -145,17 +160,44 @@ std::shared_ptr<Chunk> INode::resolve_indirection(uint64_t chunk_number) {
     const uint64_t num_chunk_address_per_chunk = superblock->disk_chunk_size / sizeof(uint64_t);
     uint64_t indirect_address_count = 1;
 
+    fprintf(stdout, "INode::resolve_indirection for chunk_number %llu\n", chunk_number);
+
     uint64_t *indirect_table = data.addresses;
     for(uint64_t indirection = 0; indirection < sizeof(INDIRECT_TABLE_SIZES) / sizeof(uint64_t); indirection++){
+        fprintf(stdout, 
+            "INode::resolve_indirection looking for chunk_number %llu"
+            " at indirect table level %llu\n", chunk_number, indirection);
+        
+        // TODO: there is something WRONG here sadface cries.
+
         if(chunk_number < (indirect_address_count * INDIRECT_TABLE_SIZES[indirection])){
-            uint64_t next_chunk_loc = indirect_table[chunk_number / indirect_address_count];
-            if(next_chunk_loc == 0){
-                std::shared_ptr<Chunk> chunk = this->superblock->allocate_chunk();
-                std::memset((void *)chunk->data.get(), 0, chunk->size_bytes);
-                indirect_table[chunk_number / indirect_address_count] = chunk->chunk_idx;
+            size_t indirect_table_idx = 
+                chunk_number / indirect_address_count + INDIRECT_TABLE_SIZES[indirection];
+            uint64_t next_chunk_loc = indirect_table[indirect_table_idx];
+#ifdef DEBUG 
+            fprintf(stdout, "Determined that the chunk is in fact located in the table at level %llu\n", indirection);
+            fprintf(stdout, "Looked up the indirection table at index %llu and found chunk id %llu\n"
+                            "\tside note: indirect address count at this level is %llu\n", 
+                    chunk_number / indirect_address_count,
+                    next_chunk_loc,
+                    indirect_address_count
+                );
+#endif
+            if (next_chunk_loc == 0){
+                std::shared_ptr<Chunk> newChunk = this->superblock->allocate_chunk();
+#ifdef DEBUG 
+                fprintf(stdout, "next_chunk_loc was 0, so we created new "
+                    "chunk id %zu/%llu and placed it in the table\n", 
+                    newChunk->chunk_idx, 
+                    this->superblock->disk->size_chunks());
+#endif
+                std::memset((void *)newChunk->data.get(), 0, newChunk->size_bytes);
+                indirect_table[indirect_table_idx] = newChunk->chunk_idx;
+                next_chunk_loc = newChunk->chunk_idx;
             }
-            auto chunk = superblock->disk->get_chunk(next_chunk_loc);
-            while(indirection != 0){
+
+            std::shared_ptr<Chunk> chunk = superblock->disk->get_chunk(next_chunk_loc);
+            while (indirection != 0){
                 uint64_t *lookup_table = (uint64_t *)chunk->data.get();
                 next_chunk_loc = lookup_table[chunk_number / indirect_address_count];
                 if(next_chunk_loc == 0) {
@@ -168,6 +210,9 @@ std::shared_ptr<Chunk> INode::resolve_indirection(uint64_t chunk_number) {
                 indirect_address_count /= num_chunk_address_per_chunk;
                 indirection--;
             }
+
+            fprintf(stdout, "found chunk with id %zu\n", chunk->chunk_idx);
+
             return chunk;
         }
         chunk_number -= (indirect_address_count * INDIRECT_TABLE_SIZES[indirection]);
@@ -253,6 +298,7 @@ void SuperBlock::init(double inode_table_size_rel_to_disk) {
     disk_block_map->clear_all();
     disk_block_map_size_chunks = disk_block_map->size_chunks();
     std::cout << "FINISHED INITIALIZE BLOCK MAP" << std::endl;
+    
     //get actual size of the block map made
 
     //check that metadata isn't too big
