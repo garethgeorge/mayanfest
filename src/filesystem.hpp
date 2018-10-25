@@ -16,13 +16,12 @@ struct INode;
 struct INodeTable;
 struct SuperBlock;
 
-struct FileSystemException : public std::exception {
-	std::string message;
-	FileSystemException(const std::string &message) : message(message) { };
+struct FileSystemException : public StorageException {
+	FileSystemException(const std::string &message) : StorageException(message) { };
 };
 
 struct SuperBlock {
-	Disk *disk;
+	Disk *disk = nullptr;
     const uint64_t superblock_size_chunks = 1;
 	const uint64_t disk_size_bytes;
     const uint64_t disk_size_chunks;
@@ -46,7 +45,6 @@ struct SuperBlock {
 	std::shared_ptr<Chunk> allocate_chunk() {
 		DiskBitMap::BitRange range = this->disk_block_map->find_unset_bits(1);
 		if (range.bit_count != 1) {
-			std::cout << "AHHHH!!!!! The bit count is " << range.bit_count << std::endl;
 			throw FileSystemException("FileSystem out of space -- unable to allocate a new chunk");
 		}
 
@@ -58,7 +56,7 @@ struct SuperBlock {
 };
 
 struct FileSystem {
-	Disk *disk;			
+	Disk *disk = nullptr;			
 	std::unique_ptr<SuperBlock> superblock;
 
 	// the file system, once constructed, takes ownership of the disk
@@ -69,7 +67,7 @@ struct FileSystem {
 struct INode;
 
 struct INodeTable {
-	SuperBlock *superblock;
+	SuperBlock *superblock = nullptr;
 	uint64_t inode_table_size_chunks = 0; // size of the inode table including used_inodes bitmap + ilist 
 	uint64_t inode_table_offset = 0; // this actually winds up being the offset of the used_inodes bitmap
 	uint64_t inode_ilist_offset = 0; // this ends up storing the calculated real offset of the inodes

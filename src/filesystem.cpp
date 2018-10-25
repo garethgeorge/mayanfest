@@ -2,6 +2,7 @@
 #include <array>
 #include <vector>
 #include <memory>
+#include <cassert>
 
 #include "diskinterface.hpp"
 #include "filesystem.hpp"
@@ -54,7 +55,7 @@ uint64_t INode::read(uint64_t starting_offset, char *buf, uint64_t n) {
 		bytes_to_read_in_first_iteration = n;
 	}
 	chunk = this->resolve_indirection(chunk_number);
-	std::memcpy(buf, (void*)chunk.get(), bytes_to_read_in_first_iteration);
+	std::memcpy(buf, (void*)chunk->data.get(), bytes_to_read_in_first_iteration);
 	buf += bytes_to_read_in_first_iteration;
 	chunk_number++;
 
@@ -62,7 +63,7 @@ uint64_t INode::read(uint64_t starting_offset, char *buf, uint64_t n) {
 	if(num_of_chunks_to_access > 2){
 		for(i = 1; i < (num_of_chunks_to_access - 1); i++){
 			chunk = resolve_indirection(chunk_number);
-			std::memcpy(buf, (void*)chunk.get(), chunk->size_bytes);
+			std::memcpy(buf, (void*)chunk->data.get(), chunk->size_bytes);
 			buf += chunk->size_bytes;
 			chunk_number++;
 			n -= chunk->size_bytes;
@@ -72,7 +73,7 @@ uint64_t INode::read(uint64_t starting_offset, char *buf, uint64_t n) {
 	//last chunk
 	if(num_of_chunks_to_access != 1){
 		chunk = resolve_indirection(chunk_number);
-		std::memcpy((void*)chunk.get(), buf, n);
+		std::memcpy((void*)chunk->data.get(), buf, n);
 	}
 	
 	return n_copy;
@@ -92,13 +93,11 @@ uint64_t INode::write(uint64_t starting_offset, const char *buf, uint64_t n) {
     uint64_t bytes_to_write_in_first_iteration;
 	std::shared_ptr<Chunk> chunk = nullptr;
 
-    fprintf(stdout, "PRINT #1\n");
 	if((starting_offset + n) > data.file_size){
         data.file_size = starting_offset + n;
 	}
 	n_copy = n;
 
-    fprintf(stdout, "PRINT #2\n");
 	//setup info for first chunk
 	chunk_number = starting_offset / superblock->disk_chunk_size;
 	byte_offset = starting_offset % superblock->disk_chunk_size;
@@ -106,15 +105,12 @@ uint64_t INode::write(uint64_t starting_offset, const char *buf, uint64_t n) {
 	ending_offset_chunk = starting_offset_chunk + superblock->disk_chunk_size - 1;
 	num_bytes_till_end_of_chunk = superblock->disk_chunk_size - byte_offset;
 
-    fprintf(stdout, "PRINT #3\n");
 	//find number of chunks to access
 	num_of_chunks_to_access = 1;
 	if(n > num_bytes_till_end_of_chunk){
 		uint64_t n_temp = n - num_bytes_till_end_of_chunk;
 		num_of_chunks_to_access += (n_temp / superblock->disk_chunk_size);
 	}
-
-    fprintf(stdout, "PRINT #4\n");
 
 	//first chunk
 	if(n > num_bytes_till_end_of_chunk){
@@ -124,35 +120,28 @@ uint64_t INode::write(uint64_t starting_offset, const char *buf, uint64_t n) {
 		bytes_to_write_in_first_iteration = n;
 	}
 
-    fprintf(stdout, "PRINT #5\n");
 	chunk = this->resolve_indirection(chunk_number);
-    fprintf(stdout, "PRINT #6\n");
-	std::memcpy((void*)chunk.get(), buf, bytes_to_write_in_first_iteration);
+	std::memcpy((void*)chunk->data.get(), buf, bytes_to_write_in_first_iteration);
 	buf += bytes_to_write_in_first_iteration;
 	chunk_number++;
 
-    fprintf(stdout, "PRINT #7\n");
 	//middle chunk
 	if(num_of_chunks_to_access > 2){
 		for(i = 1; i < (num_of_chunks_to_access - 1); i++){
-            fprintf(stdout, "PRINT #8\n");
 			chunk = resolve_indirection(chunk_number);
-			std::memcpy((void*)chunk.get(), buf, chunk->size_bytes);
+			std::memcpy((void*)chunk->data.get(), buf, chunk->size_bytes);
 			buf += chunk->size_bytes;
 			chunk_number++;
 			n -= chunk->size_bytes;
 		}
 	}
-    fprintf(stdout, "PRINT #9\n");
 
 	//last chunk
 	if(num_of_chunks_to_access != 1){
-        fprintf(stdout, "PRINT #10\n");
 		chunk = resolve_indirection(chunk_number);
-		std::memcpy((void*)chunk.get(), buf, n);
+		std::memcpy((void*)chunk->data.get(), buf, n);
 	}
-    fprintf(stdout, "PRINT #11\n");
-	
+
 	return n_copy;
 }
 
@@ -160,13 +149,17 @@ std::shared_ptr<Chunk> INode::resolve_indirection(uint64_t chunk_number) {
     const uint64_t num_chunk_address_per_chunk = superblock->disk_chunk_size / sizeof(uint64_t);
     uint64_t indirect_address_count = 1;
 
+#ifdef DEBUG
     fprintf(stdout, "INode::resolve_indirection for chunk_number %llu\n", chunk_number);
+#endif 
 
     uint64_t *indirect_table = data.addresses;
     for(uint64_t indirection = 0; indirection < sizeof(INDIRECT_TABLE_SIZES) / sizeof(uint64_t); indirection++){
+#ifdef DEBUG 
         fprintf(stdout, 
             "INode::resolve_indirection looking for chunk_number %llu"
             " at indirect table level %llu\n", chunk_number, indirection);
+#endif 
         
         // TODO: there is something WRONG here sadface cries.
 
@@ -211,7 +204,9 @@ std::shared_ptr<Chunk> INode::resolve_indirection(uint64_t chunk_number) {
                 indirection--;
             }
 
-            fprintf(stdout, "found chunk with id %zu\n", chunk->chunk_idx);
+#ifdef DEBUG 
+            fprintf(stdout, "found  chunk with id %zu, parent disk %llx\n", chunk->chunk_idx, (unsigned long long)chunk->parent);
+#endif 
 
             return chunk;
         }
