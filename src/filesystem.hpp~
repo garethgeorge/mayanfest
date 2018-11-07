@@ -16,12 +16,13 @@ struct INode;
 struct INodeTable;
 struct SuperBlock;
 
-struct FileSystemException : public StorageException {
-	FileSystemException(const std::string &message) : StorageException(message) { };
+struct FileSystemException : public std::exception {
+	std::string message;
+	FileSystemException(const std::string &message) : message(message) { };
 };
 
 struct SuperBlock {
-  Disk *disk = nullptr;
+  Disk *disk;
   const uint64_t superblock_size_chunks = 1;
   const uint64_t disk_size_bytes;
   const uint64_t disk_size_chunks;
@@ -62,14 +63,12 @@ struct FileSystem {
   // the file system, once constructed, takes ownership of the disk
   FileSystem(Disk *disk) : disk(disk), superblock(new SuperBlock(disk)) {
   }
-
-  void printForDebug();
 };
 
 struct INode;
 
 struct INodeTable {
-	SuperBlock *superblock = nullptr;
+	SuperBlock *superblock;
 	uint64_t inode_table_size_chunks = 0; // size of the inode table including used_inodes bitmap + ilist 
 	uint64_t inode_table_offset = 0; // this actually winds up being the offset of the used_inodes bitmap
 	uint64_t inode_ilist_offset = 0; // this ends up storing the calculated real offset of the inodes
@@ -118,7 +117,7 @@ struct INode {
 	};
 
 	INodeData data;
-	SuperBlock *superblock = nullptr;	
+	SuperBlock *superblock;	
 
 	std::shared_ptr<Chunk> resolve_indirection(uint64_t chunk_number);
 
@@ -126,7 +125,6 @@ struct INode {
 	// that have not been written but that ARE within the size of the file,
 	// TODO: possibly be smart about this
 	uint64_t read(uint64_t starting_offset, char *buf, uint64_t n);
-	uint64_t write(uint64_t starting_offset, const char *buf, uint64_t n);
 };
 
 #endif

@@ -82,11 +82,15 @@ static bool find_unset_cache_initialized = bitmap_init_cache(DiskBitMap::find_un
 DiskBitMap::BitRange DiskBitMap::find_unset_bits(Size length) const {
 	using BitRange = DiskBitMap::BitRange;
 	
+	// fprintf(stdout, "SCANNING BITMAP (SIZE IN BITS): %llu\n", this->size_in_bits);
+
 	BitRange retval;
 	for (Size idx = 0; idx < this->size_in_bits; idx += 8) {
-		const size_t byte = (size_t)this->get_byte_for_idx(idx);
+		const Byte byte = (size_t)this->get_byte_for_idx(idx);
 		BitRange res = find_unset_cache[byte];
 		res.start_idx += idx;
+
+		// fprintf(stdout, "SCANNING %d : %x\n", idx, byte);
 
 		// if retval already set, the next set of bits must start immediately where the last one ends
 		if (retval.bit_count != 0 && res.start_idx != retval.start_idx + retval.bit_count) {

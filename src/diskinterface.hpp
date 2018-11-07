@@ -9,14 +9,21 @@
 #include <array>
 #include <iostream>
 
+#include <cstring>
+#include <memory>
+
 typedef uint8_t Byte;
 typedef uint64_t Size;
 
 class Disk;
 
-struct DiskException : public std::exception {
-	std::string message;
-	DiskException(const std::string &message) : message(message) { };
+struct StorageException : public std::exception {
+	const std::string message;
+	StorageException(const std::string &message) : message(message) { };
+};
+
+struct DiskException : public StorageException {
+	DiskException(const std::string &message) : StorageException(message) { };
 };
 
 struct Chunk {
@@ -100,7 +107,7 @@ public:
 	Disk(Size size_chunk_ctr, Size chunk_size_ctr) 
 		: _chunk_size(chunk_size_ctr), _size_chunks(size_chunk_ctr) {
 		// initialize the data for the disk
-		this->data = std::unique_ptr<Byte[]>(new Byte[this->size_bytes() + 1]);
+		this->data = std::unique_ptr<Byte[]>(new Byte[this->size_bytes()]);
 		std::memset(this->data.get(), 0, this->size_bytes());
 	}
 
@@ -152,22 +159,13 @@ struct DiskBitMap {
 	}
 
 	void clear_all() {
-		std::cout << "\tIN CLEAR ALL" << std::endl;
 		for (std::shared_ptr<Chunk>& chunk : chunks) {
-			std::cout << "\t\ttrying to clear a chunk" << std::endl;
-			std::cout << "\t\tclearing chunk: " << chunk->chunk_idx << "/" << this->chunks.size() << std::endl;
-			std::cout << "\t\t\tchunk size in bytes is: " << chunk->size_bytes << std::endl;
-			std::cout << "\t\t\tchunk data address is:" << (unsigned long long)chunk->data.get() << std::endl;
 			std::memset(chunk->data.get(), 0, chunk->size_bytes);
 		}
-
-		std::cout << "\tDONE, NOW SETTING BITMAP VALUES" << std::endl;
 
 		for (uint64_t idx = this->size_in_bits; idx < this->size_in_bits + 8; ++idx) {
 			this->set(idx);
 		}
-
-		std::cout << "\tOUT CLEAR ALL" << std::endl;
 	}
 
 	Size size_bytes() const {
