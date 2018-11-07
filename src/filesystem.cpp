@@ -164,14 +164,14 @@ std::shared_ptr<Chunk> INode::resolve_indirection(uint64_t chunk_number) {
         // TODO: there is something WRONG here sadface cries.
 
         if(chunk_number < (indirect_address_count * INDIRECT_TABLE_SIZES[indirection])){
-            size_t indirect_table_idx = 
-                chunk_number / indirect_address_count + INDIRECT_TABLE_SIZES[indirection];
+            size_t indirect_table_idx = chunk_number / indirect_address_count;
+            // chunk_number / indirect_address_count + INDIRECT_TABLE_SIZES[indirection];
             uint64_t next_chunk_loc = indirect_table[indirect_table_idx];
 #ifdef DEBUG 
             fprintf(stdout, "Determined that the chunk is in fact located in the table at level %llu\n", indirection);
             fprintf(stdout, "Looked up the indirection table at index %llu and found chunk id %llu\n"
                             "\tside note: indirect address count at this level is %llu\n", 
-                    chunk_number / indirect_address_count,
+                    indirect_table_idx,
                     next_chunk_loc,
                     indirect_address_count
                 );
@@ -187,25 +187,42 @@ std::shared_ptr<Chunk> INode::resolve_indirection(uint64_t chunk_number) {
                 std::memset((void *)newChunk->data.get(), 0, newChunk->size_bytes);
                 indirect_table[indirect_table_idx] = newChunk->chunk_idx;
                 next_chunk_loc = newChunk->chunk_idx;
+                
+                fprintf(stdout, "the real next_chunk_loc is %llu\n", next_chunk_loc);
             }
 
+            fprintf(stdout, "chasing chunk through the indirection table:\n");
             std::shared_ptr<Chunk> chunk = superblock->disk->get_chunk(next_chunk_loc);
             while (indirection != 0){
+                indirect_address_count /= num_chunk_address_per_chunk;
+
+                fprintf(stdout, "\tcurrent indirect level is: %llu, indirect block id is: %llu\n", indirection, chunk->chunk_idx);
                 uint64_t *lookup_table = (uint64_t *)chunk->data.get();
                 next_chunk_loc = lookup_table[chunk_number / indirect_address_count];
+
+                fprintf(stdout, "\tfound next_chunk_loc %llu in table at index %llu\n"
+                    "\t\tside note: indirect address count is %llu\n", 
+                    next_chunk_loc, 
+                    chunk_number / indirect_address_count,
+                    indirect_address_count);
+
                 if(next_chunk_loc == 0) {
-                    std::shared_ptr<Chunk> chunk = this->superblock->allocate_chunk();
-                    std::memset((void *)chunk->data.get(), 0, chunk->size_bytes);
-                    lookup_table[chunk_number / indirect_address_count] = chunk->chunk_idx;
-                } else {
-                    chunk = superblock->disk->get_chunk(next_chunk_loc);
+                    std::shared_ptr<Chunk> newChunk = this->superblock->allocate_chunk();
+                    std::memset((void *)newChunk->data.get(), 0, newChunk->size_bytes);
+                    next_chunk_loc = newChunk->chunk_idx;
+                    lookup_table[chunk_number / indirect_address_count] = newChunk->chunk_idx;
+                    fprintf(stdout, "\tnext_chunk_loc was 0, so we created new "
+                        "chunk id %zu/%llu and placed it in the table\n", 
+                        newChunk->chunk_idx, this->superblock->disk->size_chunks());
                 }
-                indirect_address_count /= num_chunk_address_per_chunk;
+
+                chunk = superblock->disk->get_chunk(next_chunk_loc);
+
                 indirection--;
             }
 
 #ifdef DEBUG 
-            fprintf(stdout, "found  chunk with id %zu, parent disk %llx\n", chunk->chunk_idx, (unsigned long long)chunk->parent);
+            fprintf(stdout, "found chunk with id %zu, parent disk %llx\n", chunk->chunk_idx, (unsigned long long)chunk->parent);
 #endif 
 
             return chunk;

@@ -35,7 +35,7 @@ TEST_CASE( "INodes should work", "[inodes]" ) {
 		REQUIRE(inode2.data.UID == 123);
 	}
 
-	SECTION("INodes can be written/read short strings"){
+	SECTION("INodes can be written/read short strings") {
 		try{
 			INode inode;
 			REQUIRE(fs->superblock->disk == disk.get());
