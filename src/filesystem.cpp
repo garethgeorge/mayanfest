@@ -280,9 +280,8 @@ SuperBlock::SuperBlock(Disk *disk)
 void SuperBlock::init(double inode_table_size_rel_to_disk) {
     //requested size of things in chunks
     inode_table_size_chunks = inode_table_size_rel_to_disk * disk_size_chunks;
-    disk_block_map_size_chunks = disk->size_chunks();
 
-    std::cout << "requested disk block map size in chunks is " << disk_block_map_size_chunks << std::endl;
+    std::cout << "requested disk block map size in chunks is " << disk->size_chunks() << std::endl;
 
     //block map init
     std::cout << "BEGIN INITIALIZE BLOCK MAP" << std::endl;
@@ -290,9 +289,17 @@ void SuperBlock::init(double inode_table_size_rel_to_disk) {
     disk_block_map = std::unique_ptr<DiskBitMap>(new DiskBitMap(disk, disk_block_map_offset, disk->size_chunks()));
     disk_block_map->clear_all();
     std::cout << "FINISHED INITIALIZE BLOCK MAP" << std::endl;
+    
+    //block map size in chunks
+    disk_block_map_size_chunks = disk_block_map->size_chunks();
 
     //check that metadata isn't too big
-    if(disk_block_map_size_chunks + inode_table_size_chunks + disk_block_map_size_chunks >= disk_size_chunks) {
+    if(superblock_size_chunks + inode_table_size_chunks + disk_block_map_size_chunks >= disk_size_chunks) {
+        std::cout << "meta data exceeds disk size..." << std::endl;
+	std::cout << "block map size in chunks = " << disk_block_map_size_chunks << std::endl;
+	std::cout << "inode table size in chunks = " << inode_table_size_chunks << std::endl;
+	std::cout << "superblock size chunks = " << superblock_size_chunks << std::endl;
+	std::cout << "disk size chunks = " << disk_size_chunks << std::endl;
         throw new FileSystemException("Requested size of superblock, inode table, and bit map exceeds size of disk");
     }
 
