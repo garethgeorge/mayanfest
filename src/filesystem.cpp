@@ -4,6 +4,8 @@
 #include <memory>
 #include <cassert>
 
+#include <cmath>
+
 #include "diskinterface.hpp"
 #include "filesystem.hpp"
 
@@ -44,11 +46,14 @@ uint64_t INode::read(uint64_t starting_offset, char *buf, uint64_t n) {
 	num_of_chunks_to_access = 1;
 	if(n > num_bytes_till_end_of_chunk){
 		uint64_t n_temp = n - num_bytes_till_end_of_chunk;
-		num_of_chunks_to_access += (n_temp / superblock->disk_chunk_size);
+		// changed the following line, CHECK WITH GARETH for best practice
+		num_of_chunks_to_access += ceil(n_temp / double(superblock->disk_chunk_size));
 	}
+	std::cout << "-- NUM OF CHUNK TO ACCESS (READ) -- " << num_of_chunks_to_access << std::endl;
 
 	//first chunk
 	if(n > num_bytes_till_end_of_chunk){
+		std::cout << "-- FIRST CHUNK (READ) --" << std::endl;
 		bytes_to_read_in_first_iteration = num_bytes_till_end_of_chunk;
 		n -= bytes_to_read_in_first_iteration;
 	}else{
@@ -61,6 +66,7 @@ uint64_t INode::read(uint64_t starting_offset, char *buf, uint64_t n) {
 
 	//middle chunk
 	if(num_of_chunks_to_access > 2){
+		std::cout << "-- BOUNDARY CROSSED MIDDLE (READ) --" << std::endl;
 		for(i = 1; i < (num_of_chunks_to_access - 1); i++){
 			chunk = resolve_indirection(chunk_number);
 			std::memcpy(buf, (void*)chunk->data.get(), chunk->size_bytes);
@@ -72,6 +78,7 @@ uint64_t INode::read(uint64_t starting_offset, char *buf, uint64_t n) {
 
 	//last chunk
 	if(num_of_chunks_to_access != 1){
+		std::cout << "-- BOUNDARY CROSSED (READ) --" << std::endl;
 		chunk = resolve_indirection(chunk_number);
 		std::memcpy((void*)chunk->data.get(), buf, n);
 	}
@@ -109,11 +116,14 @@ uint64_t INode::write(uint64_t starting_offset, const char *buf, uint64_t n) {
 	num_of_chunks_to_access = 1;
 	if(n > num_bytes_till_end_of_chunk){
 		uint64_t n_temp = n - num_bytes_till_end_of_chunk;
-		num_of_chunks_to_access += (n_temp / superblock->disk_chunk_size);
+		// changed the following line, CHECK WITH GARETH for best practice
+		num_of_chunks_to_access += ceil(n_temp / double(superblock->disk_chunk_size));
 	}
+	std::cout << "-- NUM OF CHUNK TO ACCESS (WRITE) -- " << num_of_chunks_to_access << std::endl;
 
 	//first chunk
 	if(n > num_bytes_till_end_of_chunk){
+		std::cout << "-- FIRST CHUNK (WRITE) --" << std::endl;
 		bytes_to_write_in_first_iteration = num_bytes_till_end_of_chunk;
 		n -= bytes_to_write_in_first_iteration;
 	}else{
@@ -127,6 +137,7 @@ uint64_t INode::write(uint64_t starting_offset, const char *buf, uint64_t n) {
 
 	//middle chunk
 	if(num_of_chunks_to_access > 2){
+		std::cout << "-- BOUNDARY CROSSED MIDDLE (WRITE) --" << std::endl;
 		for(i = 1; i < (num_of_chunks_to_access - 1); i++){
 			chunk = resolve_indirection(chunk_number);
 			std::memcpy((void*)chunk->data.get(), buf, chunk->size_bytes);
@@ -138,6 +149,7 @@ uint64_t INode::write(uint64_t starting_offset, const char *buf, uint64_t n) {
 
 	//last chunk
 	if(num_of_chunks_to_access != 1){
+		std::cout << "-- BOUNDARY CROSSED (WRITE) --" << std::endl;
 		chunk = resolve_indirection(chunk_number);
 		std::memcpy((void*)chunk->data.get(), buf, n);
 	}
