@@ -70,7 +70,7 @@ public:
 			if (std::shared_ptr<V> v = (*ref).second.lock()) {
 				return std::move(v);
 			}
-		}
+		} 
 
 		return nullptr;
 	}

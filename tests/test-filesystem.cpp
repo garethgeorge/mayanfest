@@ -94,4 +94,44 @@ TEST_CASE( "INodes read/write should work on a small disk with reasonably sized 
 			std::cout<< e.message << std::endl;
 		}
 	}
+
+	SECTION("INodes can be written short strings at VERY LARGE offsets (a few pages)"){
+		try{
+			std::cout << std::endl << std::endl;
+			INode inode;
+			REQUIRE(fs->superblock->disk == disk.get());
+			inode.superblock = fs->superblock.get();
+			REQUIRE(inode.superblock->disk == disk.get());
+			
+			char str[] = "hello there!";
+			REQUIRE(inode.write(10 * 1024 * 1024, str, sizeof(str)) == sizeof(str));
+
+			char buf[sizeof(str)];
+			REQUIRE(inode.read(10 * 1024 * 1024, buf, sizeof(str)) == sizeof(str));
+			REQUIRE(strcmp(buf, str) == 0);
+		}catch(const FileSystemException &e){
+			std::cout<< e.message << std::endl;
+		}catch(const DiskException &e) {
+			std::cout<< e.message << std::endl;
+		}
+	}
+
+	SECTION("Can write a 10KB file"){
+		try{
+			std::cout << std::endl << std::endl;
+			INode inode;
+			REQUIRE(fs->superblock->disk == disk.get());
+			inode.superblock = fs->superblock.get();
+			REQUIRE(inode.superblock->disk == disk.get());
+			
+			char str[] = "hello there!hello there!hello there!hello there!hello there!hello there!hello there!hello there!hello there!hello there!hello there!hello there!hello there!";
+			for (size_t i = 0; i < 10 * 1024; i += sizeof(str)) {
+				REQUIRE(inode.write(i, str, sizeof(str)) == sizeof(str));	
+			}
+		}catch(const FileSystemException &e){
+			std::cout<< e.message << std::endl;
+		}catch(const DiskException &e) {
+			std::cout<< e.message << std::endl;
+		}
+	}
 }
