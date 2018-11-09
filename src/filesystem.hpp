@@ -122,6 +122,8 @@ struct INode {
 
 	std::shared_ptr<Chunk> resolve_indirection(uint64_t chunk_number);
 
+	static uint64_t get_file_size();
+
 	// NOTE: read is NOT const, it will allocate chunks when reading inodes 
 	// that have not been written but that ARE within the size of the file,
 	// TODO: possibly be smart about this

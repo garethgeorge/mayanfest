@@ -14,7 +14,7 @@ TEST_CASE( "Making a filesystem should work", "[filesystem]" ) {
 	fs->superblock->init(0.1);
 }
 
-TEST_CASE( "INodes should work", "[inodes]" ) {
+TEST_CASE( "INodes read/write should work on a small disk with reasonably sized writes", "[inodes]" ) {
 	constexpr uint64_t CHUNK_COUNT = 1024;
 	constexpr uint64_t CHUNK_SIZE = 1024;
 
@@ -49,6 +49,27 @@ TEST_CASE( "INodes should work", "[inodes]" ) {
 			REQUIRE(inode.read(0, buf, sizeof(str)) == sizeof(str));
 			REQUIRE(strcmp(buf, str) == 0);
 		}catch(const FileSystemException &e){
+			std::cout<< e.message << std::endl;
+		}
+	}
+
+	SECTION("INodes can be written short strings at large offsets (a few pages)"){
+		try{
+			std::cout << std::endl << std::endl;
+			INode inode;
+			REQUIRE(fs->superblock->disk == disk.get());
+			inode.superblock = fs->superblock.get();
+			REQUIRE(inode.superblock->disk == disk.get());
+			
+			char str[] = "hello there!";
+			REQUIRE(inode.write(10 * 1024, str, sizeof(str)) == sizeof(str));
+
+			char buf[sizeof(str)];
+			REQUIRE(inode.read(10 * 1024, buf, sizeof(str)) == sizeof(str));
+			REQUIRE(strcmp(buf, str) == 0);
+		}catch(const FileSystemException &e){
+			std::cout<< e.message << std::endl;
+		}catch(const DiskException &e) {
 			std::cout<< e.message << std::endl;
 		}
 	}

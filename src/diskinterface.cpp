@@ -56,6 +56,39 @@ Disk::~Disk() {
 	
 }
 
+
+
+/*
+	Disk Bit Map Methods
+*/
+
+DiskBitMap::DiskBitMap(Disk *disk, Size chunk_start, Size size_in_bits) {
+	this->size_in_bits = size_in_bits;
+	this->disk = disk;
+	for (uint64_t idx = 0; idx < this->size_chunks(); ++idx) {
+		auto chunk = disk->get_chunk(idx + chunk_start);
+		chunk->lock.lock();
+		this->chunks.push_back(std::move(chunk));
+	}
+}
+
+DiskBitMap::~DiskBitMap() {
+	for (auto &chunk : chunks) {
+		chunk->lock.unlock();
+	}
+}
+
+void DiskBitMap::clear_all() {
+	for (std::shared_ptr<Chunk>& chunk : chunks) {
+		std::memset(chunk->data.get(), 0, chunk->size_bytes);
+	}
+
+	for (uint64_t idx = this->size_in_bits; idx < this->size_in_bits + 8; ++idx) {
+		this->set(idx);
+	}
+}
+
+
 std::array<DiskBitMap::BitRange, 256> DiskBitMap::find_unset_cache;
 
 static bool bitmap_init_cache(std::array<DiskBitMap::BitRange, 256>& cache) {
@@ -117,3 +150,4 @@ DiskBitMap::BitRange DiskBitMap::find_unset_bits(Size length) const {
 
 	return retval;
 }
+

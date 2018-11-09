@@ -142,31 +142,11 @@ struct DiskBitMap {
 	Size size_in_bits;
 	std::vector<std::shared_ptr<Chunk>> chunks;
 
-	DiskBitMap(Disk *disk, Size chunk_start, Size size_in_bits) {
-		this->size_in_bits = size_in_bits;
-		this->disk = disk;
-		for (uint64_t idx = 0; idx < this->size_chunks(); ++idx) {
-			auto chunk = disk->get_chunk(idx + chunk_start);
-			chunk->lock.lock();
-			this->chunks.push_back(std::move(chunk));
-		}
-	}
+	DiskBitMap(Disk *disk, Size chunk_start, Size size_in_bits);
 
-	~DiskBitMap() {
-		for (auto &chunk : chunks) {
-			chunk->lock.unlock();
-		}
-	}
+	~DiskBitMap();
 
-	void clear_all() {
-		for (std::shared_ptr<Chunk>& chunk : chunks) {
-			std::memset(chunk->data.get(), 0, chunk->size_bytes);
-		}
-
-		for (uint64_t idx = this->size_in_bits; idx < this->size_in_bits + 8; ++idx) {
-			this->set(idx);
-		}
-	}
+	void clear_all();
 
 	Size size_bytes() const {
 		// add an extra byte which will be used for padding
@@ -218,7 +198,7 @@ struct DiskBitMap {
 			for (Size idx = start_idx; idx < start_idx + bit_count; ++idx) {
 				map.clr(idx);
 			}
-		} 
+		}
 	};
 
 	static std::array<BitRange, 256> find_unset_cache;
