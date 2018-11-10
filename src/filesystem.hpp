@@ -70,6 +70,8 @@ struct FileSystem {
 struct INode;
 
 struct INodeTable {
+	std::mutex lock;
+
 	SuperBlock *superblock = nullptr;
 	uint64_t inode_table_size_chunks = 0; // size of the inode table including used_inodes bitmap + ilist 
 	uint64_t inode_table_offset = 0; // this actually winds up being the offset of the used_inodes bitmap
@@ -91,6 +93,8 @@ struct INodeTable {
 	uint64_t size_inodes() {
 		return inode_count;
 	}
+
+	INode alloc_inode();
 	
 	INode get_inode(uint64_t idx);
 	
@@ -110,7 +114,7 @@ struct INode {
 	struct INodeData {
 		// we store the data in a subclass so that it can be serialized independently 
 		// from data structures that INode needs to keep when loaded in memory
-		uint64_t UID = 0; //user id
+		uint64_t UID = 0; // user id
 		uint64_t last_modified = 0; //last modified timestamp
 		uint64_t file_size = 0; //size of file
 		uint64_t reference_count = 0; //reference count to the inode
@@ -118,10 +122,11 @@ struct INode {
 		std::bitset<11> inode_bits; //rwxrwxrwx (ow, g, oth) dir special 
 	};
 
+	uint64_t inode_table_idx = 0;
 	INodeData data;
 	SuperBlock *superblock = nullptr;	
 
-	std::shared_ptr<Chunk> resolve_indirection(uint64_t chunk_number);
+	std::shared_ptr<Chunk> resolve_indirection(uint64_t chunk_number, bool createIfNotExists);
 
 	static uint64_t get_file_size();
 

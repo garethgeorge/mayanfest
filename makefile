@@ -9,8 +9,8 @@ TEST_OBJS=tests/test-diskinterface.o tests/test-filesystem.o
 
 all: test
 
-test: ${TEST_OBJS} ${OBJS}
-	${CPPCC} ${CPPFLAGS} -o test tests/test-main.cpp ${TEST_OBJS} ${OBJS} ${INCLUDES}
+test: ${TEST_OBJS} ${OBJS} tests/test-main.o
+	${CPPCC} ${CPPFLAGS} -o test tests/test-main.o ${TEST_OBJS} ${OBJS} ${INCLUDES}
 
 %.o: %.c
 	# @echo CC $@

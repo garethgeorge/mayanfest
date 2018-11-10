@@ -7,6 +7,27 @@
 #include "diskinterface.hpp"
 #include "filesystem.hpp"
 
+const auto get_random_buffer = [](size_t size, bool nullTerminate = false) -> std::vector<char> {
+	std::vector<char> buf;
+	buf.resize(size + (nullTerminate ? 1 : 0));
+	for (size_t i = 0; i < size;) {
+		size_t j = 0;
+		size_t r = rand();
+		while (j < 6 && i < size) {
+			buf[i] = ('a' + r % 26);
+			r /= 26;
+
+			j++;
+			i++;
+		}
+	}
+	if (nullTerminate) {
+		buf[size] = '\0';
+	}
+	return std::move(buf);
+};
+
+
 TEST_CASE( "Making a filesystem should work", "[filesystem]" ) {
 	constexpr uint64_t CHUNK_COUNT = 4096;
 	constexpr uint64_t CHUNK_SIZE = 4096;
@@ -136,11 +157,83 @@ TEST_CASE("INode read/write test with random patterns", "[filesystem][readwrite]
 			}
 		}
 	}
-
 }
 
-TEST_CASE("INode write all, then readback all", "[filesyste][readwrite][readwrite.nocorrupt]") {
-	
+
+
+TEST_CASE("INode write all, then readback all, reconstruct disk, and then do it again!!!", "[filesyste][readwrite][readwrite.rwrecon]") {
+	std::unique_ptr<Disk> disk(new Disk(10 * 1024, 512));
+	std::unique_ptr<FileSystem> fs(new FileSystem(disk.get()));
+	fs->superblock->init(0.1);
+
+	const size_t FILE_SIZE = 250 * 1024; // 100 kb
+	INode inode = fs->superblock->inode_table->alloc_inode();
+	assert(inode.superblock == fs->superblock.get());
+
+	std::unique_ptr<char[]> mem_file(new char[FILE_SIZE]);
+	std::unique_ptr<char[]> mem_file_readback(new char[FILE_SIZE]);
+	std::memset((void *)mem_file.get(), 0, FILE_SIZE);
+	std::memset((void *)mem_file_readback.get(), 0, FILE_SIZE);
+
+	for (size_t idx = 0; idx < 20000; ++idx) {
+		size_t size = rand() % (16 * 1024);
+		size_t offset = rand() % (FILE_SIZE - size);
+		// std::cout << "writing size: " << size << " bytes at offset: " << offset << std::endl;
+		std::vector<char> buffer = get_random_buffer(size);
+		REQUIRE(inode.write(offset, &(buffer[0]), size) == size);
+		std::memcpy((void *)(mem_file.get() + offset), &(buffer[0]), size);
+	}
+
+
+	// NOTE: YOU MUST WRITE INODES BACK OUT WHEN YOU ARE DONE WITH THEM 
+	inode.data.file_size = FILE_SIZE;
+	fs->superblock->inode_table->set_inode(inode.inode_table_idx, inode); 
+
+	REQUIRE(inode.read(0, mem_file_readback.get(), FILE_SIZE) == FILE_SIZE);
+	REQUIRE(std::memcmp(mem_file.get(), mem_file_readback.get(), FILE_SIZE) == 0);
+}
+
+TEST_CASE("Smaller version of INode write all, then readback all, reconstruct disk, and then do it again!!! but using a very high base offset", "[filesyste][readwrite][readwrite.rwrecon]") {
+	const auto get_random_buffer = [](size_t size, bool nullTerminate = false) -> std::vector<char> {
+		std::vector<char> buf;
+		buf.reserve(size + 1);
+		for (size_t i = 0; i < size; ++i) {
+			buf.push_back('a' + rand() % 26);
+		}
+		buf.push_back('\0');
+		return std::move(buf);
+	};
+
+	std::unique_ptr<Disk> disk(new Disk(10 * 1024, 512));
+	std::unique_ptr<FileSystem> fs(new FileSystem(disk.get()));
+	fs->superblock->init(0.1);
+
+	const size_t BASE_OFFSET = 1024 * 1024;
+	const size_t FILE_SIZE = 25 * 1024; // 100 kb
+	INode inode = fs->superblock->inode_table->alloc_inode();
+	assert(inode.superblock == fs->superblock.get());
+
+	std::unique_ptr<char[]> mem_file(new char[FILE_SIZE]);
+	std::unique_ptr<char[]> mem_file_readback(new char[FILE_SIZE]);
+	std::memset((void *)mem_file.get(), 0, FILE_SIZE);
+	std::memset((void *)mem_file_readback.get(), 0, FILE_SIZE);
+
+	for (size_t idx = 0; idx < 1000; ++idx) {
+		size_t size = rand() % (1 * 1024);
+		size_t offset = rand() % (FILE_SIZE - size) + BASE_OFFSET;
+		// std::cout << "writing size: " << size << " bytes at offset: " << offset << std::endl;
+		std::vector<char> buffer = get_random_buffer(size);
+		REQUIRE(inode.write(offset, &(buffer[0]), size) == size);
+		std::memcpy((void *)(mem_file.get() + offset - BASE_OFFSET), &(buffer[0]), size);
+	}
+
+
+	// NOTE: YOU MUST WRITE INODES BACK OUT WHEN YOU ARE DONE WITH THEM 
+	inode.data.file_size = FILE_SIZE;
+	fs->superblock->inode_table->set_inode(inode.inode_table_idx, inode); 
+
+	REQUIRE(inode.read(BASE_OFFSET, mem_file_readback.get(), FILE_SIZE) == FILE_SIZE);
+	REQUIRE(std::memcmp(mem_file.get(), mem_file_readback.get(), FILE_SIZE) == 0);
 }
 
 /*
