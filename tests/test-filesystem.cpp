@@ -110,11 +110,41 @@ TEST_CASE("INode read/write test with random patterns", "[filesystem][readwrite]
 			}
 		}
 	}
-
 }
 
-TEST_CASE("INode write all, then readback all", "[filesyste][readwrite][readwrite.nocorrupt]") {
-	
+
+
+TEST_CASE("INode write all, then readback all, reconstruct disk, and then do it again!!!", "[filesyste][readwrite][readwrite.rwrecon]") {
+	const auto get_random_buffer = [](size_t size, bool nullTerminate = false) -> std::vector<char> {
+		std::vector<char> buf;
+		buf.reserve(size + 1);
+		for (size_t i = 0; i < size; ++i) {
+			buf.push_back('a' + rand() % 26);
+		}
+		buf.push_back('\0');
+		return std::move(buf);
+	};
+
+	std::unique_ptr<Disk> disk(new Disk(1024, 512));
+	std::unique_ptr<FileSystem> fs(new FileSystem(disk.get()));
+	fs->superblock->init(0.1);
+
+	const size_t FILE_SIZE = 100 * 1024; // 100 kb
+	INode inode = fs->superblock->inode_table->alloc_inode();
+	assert(inode.superblock == fs->superblock.get());
+
+	std::unique_ptr<char[]> mem_file(new char[FILE_SIZE]);
+
+	for (size_t idx = 0; idx < 10000; ++idx) {
+		size_t size = rand() % (16 * 1024);
+		size_t offset = rand() % (FILE_SIZE - size);
+
+		std::vector<char> buffer = get_random_buffer(size);
+	}
+
+	// NOTE: YOU MUST WRITE INODES BACK OUT WHEN YOU ARE DONE WITH THEM 
+	fs->superblock->inode_table->set_inode(inode.inode_table_idx, inode); 
+
 }
 
 /*
