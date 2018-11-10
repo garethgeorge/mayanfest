@@ -6,6 +6,7 @@
 #include <vector>
 #include <memory>
 #include <cstdint>
+#include <string>
 
 #include "diskinterface.hpp"
 
@@ -129,6 +130,8 @@ struct INode {
 	// TODO: possibly be smart about this
 	uint64_t read(uint64_t starting_offset, char *buf, uint64_t n);
 	uint64_t write(uint64_t starting_offset, const char *buf, uint64_t n);
+
+	std::string to_string();
 };
 
 #endif

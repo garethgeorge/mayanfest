@@ -12,15 +12,20 @@ TEST_CASE( "Making a filesystem should work", "[filesystem]" ) {
 	constexpr uint64_t CHUNK_SIZE = 4096;
 
 	std::unique_ptr<Disk> disk(new Disk(CHUNK_COUNT, CHUNK_SIZE));
-	std::unique_ptr<FileSystem> fs(new FileSystem(disk.get()));
-	fs->superblock->init(0.1);
+	{
+		std::unique_ptr<FileSystem> fs(new FileSystem(disk.get()));
+		fs->superblock->init(0.1);
+	}
+	{
+		std::unique_ptr<FileSystem> fs(new FileSystem(disk.get()));
+		fs->superblock->load_from_disk(disk.get());
+	}
 }
 
 TEST_CASE("INode read/write test", "[filesystem][readwrite][readwrite.orderly]") {
 	const auto test_inode = [](int offset, int length) {
 		std::unique_ptr<Disk> disk(new Disk(1024, 512));
-		std::unique_ptr<FileSystem> fs(new FileSystem(disk.get()));
-		fs->superblock->init(0.1);
+		std::vector<char> read_back;
 
 		std::vector<char> to_write;
 
@@ -28,18 +33,39 @@ TEST_CASE("INode read/write test", "[filesystem][readwrite][readwrite.orderly]")
 			to_write.push_back('a' + (rand() % 26));
 		}
 		to_write.push_back('\0');
+		{
+			std::unique_ptr<FileSystem> fs(new FileSystem(disk.get()));
+			fs->superblock->init(0.1);
 
-		std::vector<char> read_back;
-		read_back.resize(to_write.size());
+			read_back.resize(to_write.size());
 
-		INode inode;
-		inode.superblock = fs->superblock.get();
-		REQUIRE(inode.superblock->disk == disk.get());
+			INode inode;
+			inode.superblock = fs->superblock.get();
+			REQUIRE(inode.superblock->disk == disk.get());
 
-		REQUIRE(inode.write(offset, &(to_write[0]), length) == length);
-		REQUIRE(inode.read(offset, &(read_back[0]), length) == length);
+			REQUIRE(inode.write(offset, &(to_write[0]), length) == length);
+			REQUIRE(inode.read(offset, &(read_back[0]), length) == length);
 
-		REQUIRE(strcmp(&to_write[0], &read_back[0]) == 0);
+			REQUIRE(strcmp(&to_write[0], &read_back[0]) == 0);
+		}
+		{
+			std::unique_ptr<FileSystem> fs(new FileSystem(disk.get()));
+			fs->superblock->load_from_disk(disk.get());
+
+			std::vector<char> read_back1;
+			read_back1.resize(to_write.size());
+
+			INode inode;
+			inode.superblock = fs->superblock.get();
+			REQUIRE(inode.superblock->disk == disk.get());
+			
+			if(! (inode.read(offset, &(read_back1[0]), length) == length) || ! (strcmp(&to_write[0], &read_back1[0]) == 0) ) {
+				std::cout << "Error reading length " << length << " at offset " << offset << std::endl;
+				std::cout << inode.to_string() << std::endl;
+			}
+			REQUIRE(inode.read(offset, &(read_back1[0]), length) == length);
+			REQUIRE(strcmp(&to_write[0], &read_back1[0]) == 0);
+		}
 	};
 
 	SECTION("Can write strings of length 1 - 10000") {
@@ -81,7 +107,7 @@ TEST_CASE("INode read/write test with random patterns", "[filesystem][readwrite]
 
 		REQUIRE(inode.write(offset, &(to_write[0]), length) == length);
 		REQUIRE(inode.read(offset, &(read_back[0]), length) == length);
-
+		
 		REQUIRE(strcmp(&to_write[0], &read_back[0]) == 0);
 	};
 
@@ -106,7 +132,7 @@ TEST_CASE("INode read/write test with random patterns", "[filesystem][readwrite]
 				uint64_t offset = rand() % 25000;
 				test_inode(inode, offset, bytes);
 				bytes_to_write -= (bytes / disk->chunk_size() + 1) * disk->chunk_size();
-				std::cout << "wrote " << bytes << " bytes at offset " << offset << std::endl;
+				//std::cout << "wrote " << bytes << " bytes at offset " << offset << std::endl;
 			}
 		}
 	}

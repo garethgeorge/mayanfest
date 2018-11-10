@@ -3,6 +3,7 @@
 #include <vector>
 #include <memory>
 #include <cassert>
+#include <sstream>
 
 #include "diskinterface.hpp"
 #include "filesystem.hpp"
@@ -113,8 +114,6 @@ std::shared_ptr<Chunk> INode::resolve_indirection(uint64_t chunk_number) {
             "INode::resolve_indirection looking for chunk_number %llu"
             " at indirect table level %llu\n", chunk_number, indirection);
 #endif 
-        
-        // TODO: there is something WRONG here sadface cries.
 
         if(chunk_number < (indirect_address_count * INDIRECT_TABLE_SIZES[indirection])){
             size_t indirect_table_idx = chunk_number / indirect_address_count;
@@ -194,6 +193,16 @@ std::shared_ptr<Chunk> INode::resolve_indirection(uint64_t chunk_number) {
         indirect_address_count *= num_chunk_address_per_chunk;
     }
     return nullptr;
+}
+
+std::string INode::to_string() {
+    std::stringstream out;
+    out << "INODE... " << std::endl;
+    for(int i = 0; i < ADDRESS_COUNT; i++) {
+        out << i << ": " << data.addresses[i] << std::endl;
+    }
+    out << "END INODE" << std::endl;
+    return out.str();
 }
 
 INodeTable::INodeTable(SuperBlock *superblock, uint64_t offset, uint64_t size) : superblock(superblock) {
