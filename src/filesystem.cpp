@@ -170,7 +170,7 @@ std::shared_ptr<Chunk> INode::resolve_indirection(uint64_t chunk_number, bool cr
                     indirect_address_count);
 #endif
 
-                if(next_chunk_loc == 0) {
+                if (next_chunk_loc == 0) {
                     if (!createIfNotExists) {
                         return nullptr;
                     }
@@ -187,6 +187,7 @@ std::shared_ptr<Chunk> INode::resolve_indirection(uint64_t chunk_number, bool cr
                 }
 
                 chunk = superblock->disk->get_chunk(next_chunk_loc);
+                chunk_number %= indirect_address_count;
 
                 indirection--;
             }

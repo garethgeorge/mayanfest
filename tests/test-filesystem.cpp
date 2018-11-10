@@ -106,7 +106,7 @@ TEST_CASE("INode read/write test with random patterns", "[filesystem][readwrite]
 				uint64_t offset = rand() % 25000;
 				test_inode(inode, offset, bytes);
 				bytes_to_write -= (bytes / disk->chunk_size() + 1) * disk->chunk_size();
-				std::cout << "wrote " << bytes << " bytes at offset " << offset << std::endl;
+				// std::cout << "wrote " << bytes << " bytes at offset " << offset << std::endl;
 			}
 		}
 	}
@@ -125,26 +125,35 @@ TEST_CASE("INode write all, then readback all, reconstruct disk, and then do it 
 		return std::move(buf);
 	};
 
-	std::unique_ptr<Disk> disk(new Disk(1024, 512));
+	std::unique_ptr<Disk> disk(new Disk(10 * 1024, 512));
 	std::unique_ptr<FileSystem> fs(new FileSystem(disk.get()));
 	fs->superblock->init(0.1);
 
-	const size_t FILE_SIZE = 100 * 1024; // 100 kb
+	const size_t FILE_SIZE = 1000 * 1024; // 100 kb
 	INode inode = fs->superblock->inode_table->alloc_inode();
 	assert(inode.superblock == fs->superblock.get());
 
 	std::unique_ptr<char[]> mem_file(new char[FILE_SIZE]);
+	std::unique_ptr<char[]> mem_file_readback(new char[FILE_SIZE]);
+	std::memset((void *)mem_file.get(), 0, FILE_SIZE);
+	std::memset((void *)mem_file_readback.get(), 0, FILE_SIZE);
 
-	for (size_t idx = 0; idx < 10000; ++idx) {
+	for (size_t idx = 0; idx < 40000; ++idx) {
 		size_t size = rand() % (16 * 1024);
 		size_t offset = rand() % (FILE_SIZE - size);
-
+		// std::cout << "writing size: " << size << " bytes at offset: " << offset << std::endl;
 		std::vector<char> buffer = get_random_buffer(size);
+		REQUIRE(inode.write(offset, &(buffer[0]), size) == size);
+		std::memcpy((void *)(mem_file.get() + offset), &(buffer[0]), size);
 	}
 
+
 	// NOTE: YOU MUST WRITE INODES BACK OUT WHEN YOU ARE DONE WITH THEM 
+	inode.data.file_size = FILE_SIZE;
 	fs->superblock->inode_table->set_inode(inode.inode_table_idx, inode); 
 
+	REQUIRE(inode.read(0, mem_file_readback.get(), FILE_SIZE) == FILE_SIZE);
+	REQUIRE(std::memcmp(mem_file.get(), mem_file_readback.get(), FILE_SIZE) == 0);
 }
 
 /*
