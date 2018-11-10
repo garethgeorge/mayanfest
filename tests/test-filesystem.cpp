@@ -44,25 +44,25 @@ TEST_CASE("INode read/write test", "[filesystem][readwrite][readwrite.orderly]")
 
 	SECTION("Can write strings of length 1 - 10000") {
 		for (int i = 0; i < 10000; ++i) {
-			test_inode(0, i + 1);
+			test_inode(0, i);
 		}
 	}
 
 	SECTION("Can write strings of length 100 at offsets 1 - 10000") {
 		for (int i = 0; i < 10000; ++i) {
-			test_inode(i + 1, 100);
+			test_inode(i, 100);
 		}
 	}
 
 	SECTION("Can write strings of length 1000 at offsets 1 - 10000") {
 		for (int i = 0; i < 10000; ++i) {
-			test_inode(i + 1, 1000);
+			test_inode(i, 1000);
 		}
 	}
 
 	SECTION("Can write strings of length 2000 at offsets 1 - 10000") {
 		for (int i = 0; i < 10000; ++i) {
-			test_inode(i + 1, 2000);
+			test_inode(i, 2000);
 		}
 	}
 }
@@ -114,7 +114,7 @@ TEST_CASE("INode read/write test with random patterns", "[filesystem][readwrite]
 }
 
 TEST_CASE("INode write all, then readback all", "[filesyste][readwrite][readwrite.nocorrupt]") {
-	// TODO: implement test
+	
 }
 
 /*
