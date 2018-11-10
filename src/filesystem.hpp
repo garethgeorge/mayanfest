@@ -94,6 +94,7 @@ struct INodeTable {
 		return inode_count;
 	}
 
+	// TODO: have these calls block when an inode is in use
 	INode alloc_inode();
 	
 	INode get_inode(uint64_t idx);
@@ -121,7 +122,7 @@ struct INode {
 		uint64_t addresses[ADDRESS_COUNT] = {0}; //8 direct
 		std::bitset<11> inode_bits; //rwxrwxrwx (ow, g, oth) dir special 
 	};
-
+	
 	uint64_t inode_table_idx = 0;
 	INodeData data;
 	SuperBlock *superblock = nullptr;	

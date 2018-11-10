@@ -27,10 +27,14 @@ uint64_t INode::read(uint64_t starting_offset, char *buf, uint64_t bytes_to_writ
         bytes_write_first_chunk = n;
     }
 
-    std::shared_ptr<Chunk> chunk = this->resolve_indirection(starting_offset / chunk_size, false);
-    std::memcpy(buf, chunk->data.get() + starting_offset % chunk_size, bytes_write_first_chunk);
-    buf += bytes_write_first_chunk;
-    n -= bytes_write_first_chunk;
+    {
+        std::shared_ptr<Chunk> chunk = this->resolve_indirection(starting_offset / chunk_size, false);
+        std::lock_guard<std::mutex> g(chunk->lock);
+        std::memcpy(buf, chunk->data.get() + starting_offset % chunk_size, bytes_write_first_chunk);
+        buf += bytes_write_first_chunk;
+        n -= bytes_write_first_chunk;
+    }
+    
 
     if (n == 0) { // early return if we wrote less than a chunk
         return bytes_to_write;
@@ -42,6 +46,7 @@ uint64_t INode::read(uint64_t starting_offset, char *buf, uint64_t bytes_to_writ
 
     while (n > chunk_size) {
         std::shared_ptr<Chunk> chunk = this->resolve_indirection(starting_offset / chunk_size, false);
+        std::lock_guard<std::mutex> g(chunk->lock);
         std::memcpy(buf, chunk->data.get(), chunk_size);
 
         buf += chunk_size;
@@ -51,6 +56,7 @@ uint64_t INode::read(uint64_t starting_offset, char *buf, uint64_t bytes_to_writ
     
     {
         std::shared_ptr<Chunk> chunk = this->resolve_indirection(starting_offset / chunk_size, false);
+        std::lock_guard<std::mutex> g(chunk->lock);
         std::memcpy(buf, chunk->data.get(), n);
     }
 
@@ -69,10 +75,14 @@ uint64_t INode::write(uint64_t starting_offset, const char *buf, uint64_t bytes_
         bytes_write_first_chunk = n;
     }
 
-    std::shared_ptr<Chunk> chunk = this->resolve_indirection(starting_offset / chunk_size, true);
-    std::memcpy(chunk->data.get() + starting_offset % chunk_size, buf, bytes_write_first_chunk);
-    buf += bytes_write_first_chunk;
-    n -= bytes_write_first_chunk;
+    {
+        std::shared_ptr<Chunk> chunk = this->resolve_indirection(starting_offset / chunk_size, true);
+        std::lock_guard<std::mutex> g(chunk->lock);
+        std::memcpy(chunk->data.get() + starting_offset % chunk_size, buf, bytes_write_first_chunk);
+        buf += bytes_write_first_chunk;
+        n -= bytes_write_first_chunk;
+    }
+    
 
     if (n == 0) { // early return if we wrote less than a chunk
         return bytes_to_write;
@@ -84,6 +94,7 @@ uint64_t INode::write(uint64_t starting_offset, const char *buf, uint64_t bytes_
 
     while (n > chunk_size) {
         std::shared_ptr<Chunk> chunk = this->resolve_indirection(starting_offset / chunk_size, true);
+        std::lock_guard<std::mutex> g(chunk->lock);
         std::memcpy(chunk->data.get(), buf, chunk_size);
 
         buf += chunk_size;
@@ -93,6 +104,7 @@ uint64_t INode::write(uint64_t starting_offset, const char *buf, uint64_t bytes_
     
     {
         std::shared_ptr<Chunk> chunk = this->resolve_indirection(starting_offset / chunk_size, true);
+        std::lock_guard<std::mutex> g(chunk->lock);
         std::memcpy(chunk->data.get(), buf, n);
     }
 
@@ -153,6 +165,9 @@ std::shared_ptr<Chunk> INode::resolve_indirection(uint64_t chunk_number, bool cr
             fprintf(stdout, "chasing chunk through the indirection table:\n");
 #endif 
             std::shared_ptr<Chunk> chunk = superblock->disk->get_chunk(next_chunk_loc);
+            // TODO: implement locking on this chunk, this will be HARD HARD HARD because of all the places
+            // the reference to the chunk is changed
+
             while (indirection != 0){
                 indirect_address_count /= num_chunk_address_per_chunk;
 #ifdef DEBUG 
@@ -223,6 +238,7 @@ INodeTable::INodeTable(SuperBlock *superblock, uint64_t offset, uint64_t size_ch
     used_inodes = std::unique_ptr<DiskBitMap>(
         new DiskBitMap(superblock->disk, inode_table_offset, inode_count)
     );
+    inode_ilist_offset = size_chunks + this->used_inodes->size_chunks();
 }
 
 void INodeTable::format_inode_table() {
@@ -260,7 +276,7 @@ INode INodeTable::get_inode(uint64_t idx) {
         throw FileSystemException("INode at index is not currently in use. You can't have it.");
 
     INode node;
-    uint64_t chunk_idx = idx / inodes_per_chunk;
+    uint64_t chunk_idx = inode_ilist_offset + idx / inodes_per_chunk;
     uint64_t chunk_offset = idx % inodes_per_chunk;
     std::shared_ptr<Chunk> chunk = superblock->disk->get_chunk(chunk_idx);
     std::memcpy((void *)(&(node.data)), chunk->data.get() + sizeof(INode::INodeData) * chunk_offset, sizeof(INode::INodeData));
@@ -276,7 +292,7 @@ void INodeTable::set_inode(uint64_t idx, INode &node) {
         throw FileSystemException("INode index out of bounds");
     used_inodes->set(idx);
 
-    uint64_t chunk_idx = idx / inodes_per_chunk;
+    uint64_t chunk_idx = inode_ilist_offset + idx / inodes_per_chunk;
     uint64_t chunk_offset = idx % inodes_per_chunk;
     std::shared_ptr<Chunk> chunk = superblock->disk->get_chunk(chunk_idx);
     std::memcpy((void *)(chunk->data.get() + sizeof(INode::INodeData) * chunk_offset), (void *)(&(node.data)), sizeof(INode::INodeData));
@@ -364,6 +380,14 @@ void SuperBlock::init(double inode_table_size_rel_to_disk) {
     *(uint64_t *)(sb_data+offset) = inode_table_size_chunks;
     offset += sizeof(uint64_t);
     *(uint64_t *)(sb_data+offset) = data_offset;
+    disk->flush_chunk(*sb_chunk);
+
+    {
+        auto sb_chunk = disk->get_chunk(0);
+        Byte* sb_data = sb_chunk->data.get();
+        int offset = 0;
+        std::cout << "END OF INIT: " << *(uint64_t *)(sb_data+offset) << std::endl;
+    }
 }
 
 void SuperBlock::load_from_disk(Disk * disk) {

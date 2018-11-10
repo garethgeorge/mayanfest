@@ -53,30 +53,55 @@ TEST_CASE("INode read/write test", "[filesystem][readwrite][readwrite.orderly]")
 		for (int i = 0; i < length; ++i) {
 			to_write.push_back('a' + (rand() % 26));
 		}
+		int64_t inode_idx = 0;
+
 		to_write.push_back('\0');
 		{
 			std::unique_ptr<FileSystem> fs(new FileSystem(disk.get()));
 			fs->superblock->init(0.1);
+			{
+				auto sb_chunk = disk->get_chunk(0);
+				Byte* sb_data = sb_chunk->data.get();
+				int offset = 0;
+				std::cout << "DISK INITIALIZED OFFICIALLY: " << *(uint64_t *)(sb_data+offset) << std::endl;
+			}
 
 			read_back.resize(to_write.size());
 
-			INode inode;
+			INode inode = fs->superblock->inode_table->alloc_inode();
+			inode_idx = inode.inode_table_idx;
+
 			inode.superblock = fs->superblock.get();
 			REQUIRE(inode.superblock->disk == disk.get());
 
 			REQUIRE(inode.write(offset, &(to_write[0]), length) == length);
+			if (inode.data.file_size < offset + length) {
+				inode.data.file_size = offset + length;
+			}
+			fs->superblock->inode_table->set_inode(inode_idx, inode); // store back the inode
+			
 			REQUIRE(inode.read(offset, &(read_back[0]), length) == length);
 
 			REQUIRE(strcmp(&to_write[0], &read_back[0]) == 0);
+
+			{
+				auto sb_chunk = disk->get_chunk(0);
+				Byte* sb_data = sb_chunk->data.get();
+				int offset = 0;
+				std::cout << "DISK WRITTEN: " << *(uint64_t *)(sb_data+offset) << std::endl;
+			}
 		}
+		
 		{
 			std::unique_ptr<FileSystem> fs(new FileSystem(disk.get()));
 			fs->superblock->load_from_disk(disk.get());
+			std::shared_ptr<Chunk> page0 = disk->get_chunk(0);
+			std::cout << "DISK LOADED: " << *((uint64_t *)page0.get()) << std::endl;
 
 			std::vector<char> read_back1;
 			read_back1.resize(to_write.size());
 
-			INode inode;
+			INode inode = fs->superblock->inode_table->get_inode(inode_idx);
 			inode.superblock = fs->superblock.get();
 			REQUIRE(inode.superblock->disk == disk.get());
 			
