@@ -265,6 +265,101 @@ TEST_CASE("Smaller version of INode write all, then readback all, reconstruct di
 	TODO: test behavior with random disk sizes
 */
 
+TEST_CASE("INode write overlapping strings", "[INode]"){
+ 	constexpr uint64_t CHUNK_COUNT = 1024;
+ 	constexpr uint64_t CHUNK_SIZE = 1024;
+
+ 	std::unique_ptr<Disk> disk(new Disk(CHUNK_COUNT, CHUNK_SIZE));
+ 	std::unique_ptr<FileSystem> fs(new FileSystem(disk.get()));
+ 	fs->superblock->init(0.1);
+
+	SECTION("INodes can be written with overlapping strings and read back"){
+		INode inode = fs->superblock->inode_table->alloc_inode();
+		REQUIRE(fs->superblock->disk == disk.get());
+		inode.superblock = fs->superblock.get();
+		REQUIRE(inode.superblock->disk == disk.get());
+		
+		char str1[] = "ab";
+		char str2[] = "cd";
+		char buf[4];
+		std::memset(buf, 0, 4);
+		inode.write(0, str1, sizeof(str1) - 1);
+		inode.write(1, str2, sizeof(str2) - 1);
+
+		fs->superblock->inode_table->set_inode(0, inode);
+		inode = fs->superblock->inode_table->get_inode(0);
+
+		inode.read(0, buf, 3);
+		REQUIRE(strcmp(buf, "acd") == 0);
+	}
+
+	SECTION("INodes can be re-written with overlapping strings and read back"){
+		INode inode = fs->superblock->inode_table->alloc_inode();
+		REQUIRE(fs->superblock->disk == disk.get());
+		inode.superblock = fs->superblock.get();
+		REQUIRE(inode.superblock->disk == disk.get());
+		
+		char str1[] = "ab";
+		char str2[] = "cd";
+		char buf[4];
+		std::memset(buf, 0, 4);
+		inode.write(0, str1, sizeof(str1) - 1);
+		inode.write(1, str2, sizeof(str2) - 1);
+		//rewrite
+		inode.write(0, str1, sizeof(str1) - 1);
+		inode.write(1, str2, sizeof(str2) - 1);
+
+		fs->superblock->inode_table->set_inode(0, inode);
+		inode = fs->superblock->inode_table->get_inode(0);
+
+		inode.read(0, buf, 3);
+		REQUIRE(strcmp(buf, "acd") == 0);
+	}
+
+	SECTION("INodes can be written with overlapping strings beginning at random offsets and read back"){
+		INode inode = fs->superblock->inode_table->alloc_inode();
+		REQUIRE(fs->superblock->disk == disk.get());
+		inode.superblock = fs->superblock.get();
+		REQUIRE(inode.superblock->disk == disk.get());
+		
+		char str1[] = "abcd";
+		char str2[] = "efgh";
+		char buf[6];
+		std::memset(buf, 0, 6);
+		inode.write(1022, str1, sizeof(str1) - 1);
+		inode.write(1023, str2, sizeof(str2) - 1);
+
+		fs->superblock->inode_table->set_inode(0, inode);
+		inode = fs->superblock->inode_table->get_inode(0);
+
+		inode.read(1022, buf, 5);
+		REQUIRE(strcmp(buf, "aefgh") == 0);
+	}
+
+	SECTION("INodes can be re-written with overlapping strings beginning at random offsets and read back"){
+		INode inode = fs->superblock->inode_table->alloc_inode();
+		REQUIRE(fs->superblock->disk == disk.get());
+		inode.superblock = fs->superblock.get();
+		REQUIRE(inode.superblock->disk == disk.get());
+		
+		char str1[] = "abcd";
+		char str2[] = "efgh";
+		char buf[6];
+		std::memset(buf, 0, 6);
+		inode.write(1022, str1, sizeof(str1) - 1);
+		inode.write(1023, str2, sizeof(str2) - 1);
+		// rewrite
+		inode.write(1022, str1, sizeof(str1) - 1);
+		inode.write(1023, str2, sizeof(str2) - 1);
+
+		fs->superblock->inode_table->set_inode(0, inode);
+		inode = fs->superblock->inode_table->get_inode(0);
+
+		inode.read(1022, buf, 5);
+		REQUIRE(strcmp(buf, "aefgh") == 0);
+	}
+}
+
 // TEST_CASE( "INodes read/write should work on a small disk with reasonably sized writes (NOTE: inodes not properly allocated, THIS DOES NOT TEST INODE TABLE)", "[inodes]" ) {
 // 	constexpr uint64_t CHUNK_COUNT = 1024;
 // 	constexpr uint64_t CHUNK_SIZE = 1024;
