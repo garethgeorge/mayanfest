@@ -184,7 +184,7 @@ struct IDirectory {
 			}
 
 			offset = next_offset; 
-			next_offset += next_offset + MAX_SEGMENT_LENGTH + sizeof(uint64_t);
+			next_offset += MAX_SEGMENT_LENGTH + sizeof(uint64_t);
 		}
 	};
 
@@ -198,10 +198,7 @@ struct IDirectory {
 		IDirEntry entry = IDirEntry(this);
 		while (entry.have_next()) {
 			entry.get_next();
-
 			if (entry.filename[0] == 0) {
-				// this is a zero'd out directory entry, open for reuse!!
-				// set the write position to write here instead of the end of the file
 				write_position = entry.offset; 
 				break ;
 			}
@@ -212,7 +209,8 @@ struct IDirectory {
 		// write out the path name for the child
 		inode.write(write_position, filename_buf, MAX_SEGMENT_LENGTH);
 		// write out the inode_idx for the child
-		inode.write(write_position + MAX_SEGMENT_LENGTH, (char *)(&(child.inode_table_idx)), sizeof(uint64_t));
+		int64_t inode_idx = child.inode_table_idx;
+		inode.write(write_position + MAX_SEGMENT_LENGTH, (char *)(&inode_idx), sizeof(int64_t));
 	}
 
 	IDirEntry find_file(const char *filename) {

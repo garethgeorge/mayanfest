@@ -386,7 +386,8 @@ TEST_CASE("INodes can be used to store and read directories", "[filesystem][idir
 			size_t count = 0;
 			while (entry.have_next()) {
 				entry.get_next();
-				count ++;
+				std::cout << "FILENAME: " << entry.filename << std::endl;
+				count++;
 			}
 
 			REQUIRE(count == 1000);
