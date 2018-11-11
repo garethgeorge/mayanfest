@@ -5,7 +5,7 @@ CFLAGS=
 
 OBJS=src/diskinterface.o src/filesystem.o
 INCLUDES=-I ./3rdparty/ -I ./src/
-TEST_OBJS=tests/test-diskinterface.o tests/test-filesystem.o
+TEST_OBJS=tests/test-diskinterface.o tests/test-filesystem.o tests/test-syscall.o
 
 all: test
 
