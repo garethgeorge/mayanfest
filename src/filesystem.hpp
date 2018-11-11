@@ -70,7 +70,7 @@ struct FileSystem {
 struct INode;
 
 struct INodeTable {
-	std::mutex lock;
+	std::recursive_mutex lock;
 
 	SuperBlock *superblock = nullptr;
 	uint64_t inode_table_size_chunks = 0; // size of the inode table including used_inodes bitmap + ilist 

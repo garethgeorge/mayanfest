@@ -8,7 +8,7 @@
 #include "diskinterface.hpp"
 #include "filesystem.hpp"
 
-// #define DEBUG
+#define DEBUG
 
 
 using Size = uint64_t;
@@ -252,23 +252,25 @@ uint64_t INodeTable::size_chunks() {
 }
 
 INode INodeTable::alloc_inode() {
-    std::lock_guard<std::mutex> g(this->lock);
+    std::lock_guard<std::recursive_mutex> g(this->lock);
 
     DiskBitMap::BitRange range = this->used_inodes->find_unset_bits(1);
     if (range.bit_count != 1) {
-      throw FileSystemException("INodeTable out of inodes -- no free inode available for allocation");
+        throw FileSystemException("INodeTable out of inodes -- no free inode available for allocation");
     }
 
     INode inode;
     inode.superblock = this->superblock;
     inode.inode_table_idx = range.start_idx;
+
+    this->lock.unlock();
     this->set_inode(range.start_idx, inode);
     
     return inode;
 }
 
 INode INodeTable::get_inode(uint64_t idx) {
-    std::lock_guard<std::mutex> g(this->lock);
+    std::lock_guard<std::recursive_mutex> g(this->lock);
 
     if (idx >= inode_count) 
         throw FileSystemException("INode index out of bounds");
@@ -286,7 +288,7 @@ INode INodeTable::get_inode(uint64_t idx) {
 }
 
 void INodeTable::set_inode(uint64_t idx, INode &node) {
-    std::lock_guard<std::mutex> g(this->lock);
+    std::lock_guard<std::recursive_mutex> g(this->lock);
     
     if (idx >= inode_count) 
         throw FileSystemException("INode index out of bounds");
@@ -299,7 +301,7 @@ void INodeTable::set_inode(uint64_t idx, INode &node) {
 }
 
 void INodeTable::free_inode(uint64_t idx) {
-    std::lock_guard<std::mutex> g(this->lock);
+    std::lock_guard<std::recursive_mutex> g(this->lock);
 
     if (idx >= inode_count) 
         throw FileSystemException("INode index out of bounds");

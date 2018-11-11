@@ -36,15 +36,20 @@ TEST_CASE( "Making a filesystem should work", "[filesystem]" ) {
 	{
 		std::unique_ptr<FileSystem> fs(new FileSystem(disk.get()));
 		fs->superblock->init(0.1);
+		fs = nullptr;
 	}
+
 	{
+		std::cout << "Load the filesystem from the disk" << std::endl;
 		std::unique_ptr<FileSystem> fs(new FileSystem(disk.get()));
 		fs->superblock->load_from_disk(disk.get());
+		fs = nullptr;
 	}
 }
 
 TEST_CASE("INode read/write test", "[filesystem][readwrite][readwrite.orderly]") {
 	const auto test_inode = [](int offset, int length) {
+		std::cout << "START TESTINODE" << std::endl;
 		std::unique_ptr<Disk> disk(new Disk(1024, 512));
 		std::vector<char> read_back;
 
@@ -53,13 +58,16 @@ TEST_CASE("INode read/write test", "[filesystem][readwrite][readwrite.orderly]")
 
 		to_write.push_back('\0');
 		{
+			std::cout << "CHECK POINT 1" << std::endl;
 			std::unique_ptr<FileSystem> fs(new FileSystem(disk.get()));
 			fs->superblock->init(0.1);
 
 			read_back.resize(to_write.size());
-
+			
 			INode inode = fs->superblock->inode_table->alloc_inode();
 			inode_idx = inode.inode_table_idx;
+
+			std::cout << "CHECK POINT 2" << std::endl;
 
 			inode.superblock = fs->superblock.get();
 			REQUIRE(inode.superblock->disk == disk.get());
@@ -68,12 +76,16 @@ TEST_CASE("INode read/write test", "[filesystem][readwrite][readwrite.orderly]")
 			if (inode.data.file_size < offset + length) {
 				inode.data.file_size = offset + length;
 			}
+			std::cout << "CHECK POINT 3" << std::endl;
 			fs->superblock->inode_table->set_inode(inode_idx, inode); // store back the inode
 			
 			REQUIRE(inode.read(offset, &(read_back[0]), length) == length);
 
 			REQUIRE(strcmp(&to_write[0], &read_back[0]) == 0);
+			fs = nullptr;
 		}
+
+		std::cout << "MIDWAY THROUGH TEST INODE" << std::endl;
 		
 		{
 			std::unique_ptr<FileSystem> fs(new FileSystem(disk.get()));
@@ -89,7 +101,11 @@ TEST_CASE("INode read/write test", "[filesystem][readwrite][readwrite.orderly]")
 			
 			REQUIRE(inode.read(offset, &(read_back1[0]), length) == length);
 			REQUIRE(strcmp(&to_write[0], &read_back1[0]) == 0);
+
+			fs = nullptr;
 		}
+
+		std::cout << "STOP TEST INODE" << std::endl;
 	};
 
 	SECTION("Can write strings of length 1 - 10000") {
