@@ -32,3 +32,11 @@ TEST_CASE( "Parsing path should work", "[syscall]" ) {
     REQUIRE(pp[2] == "baz");
     REQUIRE(pp[3] == "bat");
 }
+
+TEST_CASE( "mknod should work", "[syscall]" ) {
+    std::unique_ptr<Disk> disk(new Disk(10 * 1024, 512));
+    MockSyscalls ms = MockSyscalls();
+    ms.mkfs(disk.get());
+    ms.mknod("/asdf.hello");
+    
+}
