@@ -48,23 +48,13 @@ TEST_CASE("INode read/write test", "[filesystem][readwrite][readwrite.orderly]")
 		std::unique_ptr<Disk> disk(new Disk(1024, 512));
 		std::vector<char> read_back;
 
-		std::vector<char> to_write;
-
-		for (int i = 0; i < length; ++i) {
-			to_write.push_back('a' + (rand() % 26));
-		}
+		std::vector<char> to_write = get_random_buffer(length);
 		int64_t inode_idx = 0;
 
 		to_write.push_back('\0');
 		{
 			std::unique_ptr<FileSystem> fs(new FileSystem(disk.get()));
 			fs->superblock->init(0.1);
-			{
-				auto sb_chunk = disk->get_chunk(0);
-				Byte* sb_data = sb_chunk->data.get();
-				int offset = 0;
-				std::cout << "DISK INITIALIZED OFFICIALLY: " << *(uint64_t *)(sb_data+offset) << std::endl;
-			}
 
 			read_back.resize(to_write.size());
 
@@ -83,20 +73,12 @@ TEST_CASE("INode read/write test", "[filesystem][readwrite][readwrite.orderly]")
 			REQUIRE(inode.read(offset, &(read_back[0]), length) == length);
 
 			REQUIRE(strcmp(&to_write[0], &read_back[0]) == 0);
-
-			{
-				auto sb_chunk = disk->get_chunk(0);
-				Byte* sb_data = sb_chunk->data.get();
-				int offset = 0;
-				std::cout << "DISK WRITTEN: " << *(uint64_t *)(sb_data+offset) << std::endl;
-			}
 		}
 		
 		{
 			std::unique_ptr<FileSystem> fs(new FileSystem(disk.get()));
 			fs->superblock->load_from_disk(disk.get());
 			std::shared_ptr<Chunk> page0 = disk->get_chunk(0);
-			std::cout << "DISK LOADED: " << *((uint64_t *)page0.get()) << std::endl;
 
 			std::vector<char> read_back1;
 			read_back1.resize(to_write.size());
@@ -105,10 +87,6 @@ TEST_CASE("INode read/write test", "[filesystem][readwrite][readwrite.orderly]")
 			inode.superblock = fs->superblock.get();
 			REQUIRE(inode.superblock->disk == disk.get());
 			
-			if(! (inode.read(offset, &(read_back1[0]), length) == length) || ! (strcmp(&to_write[0], &read_back1[0]) == 0) ) {
-				std::cout << "Error reading length " << length << " at offset " << offset << std::endl;
-				std::cout << inode.to_string() << std::endl;
-			}
 			REQUIRE(inode.read(offset, &(read_back1[0]), length) == length);
 			REQUIRE(strcmp(&to_write[0], &read_back1[0]) == 0);
 		}
@@ -208,7 +186,6 @@ TEST_CASE("INode write all, then readback all, reconstruct disk, and then do it 
 		REQUIRE(inode.write(offset, &(buffer[0]), size) == size);
 		std::memcpy((void *)(mem_file.get() + offset), &(buffer[0]), size);
 	}
-
 
 	// NOTE: YOU MUST WRITE INODES BACK OUT WHEN YOU ARE DONE WITH THEM 
 	inode.data.file_size = FILE_SIZE;
