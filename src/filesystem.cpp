@@ -36,8 +36,13 @@ uint64_t INode::read(uint64_t starting_offset, char *buf, uint64_t bytes_to_writ
 
     {
         std::shared_ptr<Chunk> chunk = this->resolve_indirection(starting_offset / chunk_size, false);
-        std::lock_guard<std::mutex> g(chunk->lock);
-        std::memcpy(buf, chunk->data.get() + starting_offset % chunk_size, bytes_write_first_chunk);
+        if (chunk == nullptr) {
+            std::memset(buf, 0, bytes_write_first_chunk);
+        } else {
+            std::lock_guard<std::mutex> g(chunk->lock);
+            std::memcpy(buf, chunk->data.get() + starting_offset % chunk_size, bytes_write_first_chunk);
+        }
+        
         buf += bytes_write_first_chunk;
         n -= bytes_write_first_chunk;
     }
@@ -53,8 +58,12 @@ uint64_t INode::read(uint64_t starting_offset, char *buf, uint64_t bytes_to_writ
 
     while (n > chunk_size) {
         std::shared_ptr<Chunk> chunk = this->resolve_indirection(starting_offset / chunk_size, false);
-        std::lock_guard<std::mutex> g(chunk->lock);
-        std::memcpy(buf, chunk->data.get(), chunk_size);
+        if (chunk == nullptr) {
+            std::memset(buf, 0, chunk_size);
+        } else {
+            std::lock_guard<std::mutex> g(chunk->lock);
+            std::memcpy(buf, chunk->data.get(), chunk_size);
+        }
 
         buf += chunk_size;
         n -= chunk_size;
@@ -63,8 +72,12 @@ uint64_t INode::read(uint64_t starting_offset, char *buf, uint64_t bytes_to_writ
     
     {
         std::shared_ptr<Chunk> chunk = this->resolve_indirection(starting_offset / chunk_size, false);
-        std::lock_guard<std::mutex> g(chunk->lock);
-        std::memcpy(buf, chunk->data.get(), n);
+        if (chunk == nullptr) {
+            std::memset(buf, 0, n);
+        } else {
+            std::lock_guard<std::mutex> g(chunk->lock);
+            std::memcpy(buf, chunk->data.get(), n);
+        }
     }
 
     return bytes_written;
