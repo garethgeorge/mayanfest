@@ -263,7 +263,6 @@ INode INodeTable::alloc_inode() {
     inode.superblock = this->superblock;
     inode.inode_table_idx = range.start_idx;
 
-    this->lock.unlock();
     this->set_inode(range.start_idx, inode);
     
     return inode;
