@@ -140,4 +140,115 @@ struct INode {
 	std::string to_string();
 };
 
+
+struct IDirectory {
+	static constexpr uint64_t MAX_SEGMENT_LENGTH = 256;
+
+	struct FileNotFoundException : public std::exception { };
+
+	INode inode;
+
+	// NOTE: starts uninitialized
+	struct IDirEntry {
+		IDirectory *directory;
+
+		IDirEntry(IDirectory *directory) : directory(directory) {
+		}
+		
+		size_t next_offset = 0; // holds the offset for the next idirentry
+		size_t offset = 0; // holds the offset for the current value of the IDirEntry
+		char filename[MAX_SEGMENT_LENGTH + 1]; 
+		int64_t inode_idx = -1;
+
+		bool is_valid() {
+			return inode_idx != -1;
+		}
+
+		bool have_next() {
+			return next_offset < this->directory->inode.data.file_size;
+		}
+
+		void get_next() {
+			auto &inode = this->directory->inode;
+
+			// std::memset(entry->filename, 0, sizeof(IDirEntry().filename));
+			this->filename[MAX_SEGMENT_LENGTH] = 0;
+			
+			size_t read_chars = inode.read(next_offset, this->filename, MAX_SEGMENT_LENGTH);
+			if (read_chars != MAX_SEGMENT_LENGTH) {
+				throw FileSystemException("failed to read directory entry, this should NEVER happen");
+			}
+
+			if (inode.read(next_offset + MAX_SEGMENT_LENGTH, (char *)(&(this->inode_idx)), sizeof(uint64_t)) != sizeof(uint64_t)) {
+				throw FileSystemException("failed to read directory entry, this should NEVER happen");
+			}
+
+			offset = next_offset; 
+			next_offset += next_offset + MAX_SEGMENT_LENGTH + sizeof(uint64_t);
+		}
+	};
+
+	IDirectory(const INode &inode) : inode(inode) {
+	};
+
+	void add_file(const char *filename, const INode& child) {
+		// TODO: do a sequential scan of the directory looking for a slot to place the new entry in
+		size_t write_position = inode.data.file_size;
+
+		IDirEntry entry = IDirEntry(this);
+		while (entry.have_next()) {
+			entry.get_next();
+
+			if (entry.filename[0] == 0) {
+				// this is a zero'd out directory entry, open for reuse!!
+				// set the write position to write here instead of the end of the file
+				write_position = entry.offset; 
+				break ;
+			}
+		}
+
+		char filename_buf[MAX_SEGMENT_LENGTH];
+		strncpy(filename_buf, filename, MAX_SEGMENT_LENGTH);
+		// write out the path name for the child
+		inode.write(write_position, filename_buf, MAX_SEGMENT_LENGTH);
+		// write out the inode_idx for the child
+		inode.write(write_position + MAX_SEGMENT_LENGTH, (char *)(&(child.inode_table_idx)), sizeof(uint64_t));
+	}
+
+	IDirEntry find_file(const char *filename) {
+		IDirEntry entry = IDirEntry(this);
+		while (entry.have_next()) {
+			entry.get_next();
+
+			if (strcmp(entry.filename, filename) == 0) {
+				return entry;
+			}
+		}
+
+		// return the 'invalid directory entry'
+		return IDirEntry(this);
+	}
+
+	void remove_file(const char *filename) {
+		IDirEntry entry = IDirEntry(this);
+
+		char zerobuf[MAX_SEGMENT_LENGTH + sizeof(uint64_t)];
+		std::memset(zerobuf, 0, sizeof(zerobuf));
+
+		while (entry.have_next()) {
+			entry.get_next();
+
+			if (strcmp(entry.filename, filename) == 0) {
+				// entirely overwrite the current entry
+				inode.write(entry.offset, zerobuf, sizeof(zerobuf));
+				
+				return ;
+			}
+		}
+
+		// return the 'invalid directory entry'
+		throw FileNotFoundException();
+	}
+};
+
 #endif

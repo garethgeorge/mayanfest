@@ -1,6 +1,7 @@
 #include <iostream>
 #include <cstdlib>
 #include <ctime>
+#include <vector>
 
 #include "catch.hpp"
 
@@ -353,237 +354,44 @@ TEST_CASE("INode write overlapping strings", "[INode]"){
 	}
 }
 
-// TEST_CASE( "INodes read/write should work on a small disk with reasonably sized writes (NOTE: inodes not properly allocated, THIS DOES NOT TEST INODE TABLE)", "[inodes]" ) {
-// 	constexpr uint64_t CHUNK_COUNT = 1024;
-// 	constexpr uint64_t CHUNK_SIZE = 1024;
+TEST_CASE("INodes can be used to store and read directories", "[filesystem][idirectory]") {
+	std::unique_ptr<Disk> disk(new Disk(10 * 1024, 512));
+	std::unique_ptr<FileSystem> fs(new FileSystem(disk.get()));
+	fs->superblock->init(0.1);
 
-// 	std::unique_ptr<Disk> disk(new Disk(CHUNK_COUNT, CHUNK_SIZE));
-// 	std::unique_ptr<FileSystem> fs(new FileSystem(disk.get()));
-// 	fs->superblock->init(0.1);
-
-// 	SECTION("INodes can be initialized and stored in INode table"){
-// 		INode inode;
-// 		fs->superblock->inode_table->set_inode(0, inode);
-// 	}
-
-// 	SECTION("INodes can be initialized, stored, and retrieved"){
-// 		INode inode;
-// 		inode.data.UID = 123;
-// 		fs->superblock->inode_table->set_inode(1, inode);
-// 		INode inode2 = fs->superblock->inode_table->get_inode(1);
-// 		REQUIRE(inode2.data.UID == 123);
-// 	}
-
-// 	SECTION("INodes can be written/read short strings") {
-// 		try{
-// 			INode inode;
-// 			REQUIRE(fs->superblock->disk == disk.get());
-// 			inode.superblock = fs->superblock.get();
-// 			REQUIRE(inode.superblock->disk == disk.get());
-			
-// 			char str[] = "hello there!";
-// 			REQUIRE(inode.write(0, str, sizeof(str)) == sizeof(str));
-
-// 			char buf[sizeof(str)];
-// 			REQUIRE(inode.read(0, buf, sizeof(str)) == sizeof(str));
-// 			REQUIRE(strcmp(buf, str) == 0);
-// 		}catch(const FileSystemException &e){
-// 			std::cout<< e.message << std::endl;
-// 		}
-// 	}
-
-// 	SECTION("INodes can be written short strings at large offsets (a few pages)"){
-// 		try{
-// 			std::cout << std::endl << std::endl;
-// 			INode inode;
-// 			REQUIRE(fs->superblock->disk == disk.get());
-// 			inode.superblock = fs->superblock.get();
-// 			REQUIRE(inode.superblock->disk == disk.get());
-			
-// 			char str[] = "hello there!";
-// 			REQUIRE(inode.write(10 * 1024, str, sizeof(str)) == sizeof(str));
-
-// 			char buf[sizeof(str)];
-// 			REQUIRE(inode.read(10 * 1024, buf, sizeof(str)) == sizeof(str));
-// 			REQUIRE(strcmp(buf, str) == 0);
-// 		}catch(const FileSystemException &e){
-// 			std::cout<< e.message << std::endl;
-// 		}catch(const DiskException &e) {
-// 			std::cout<< e.message << std::endl;
-// 		}
-// 	}
-
-// 	SECTION("INodes can be written short strings at large offsets (a few pages)"){
-// 		try{
-// 			std::cout << std::endl << std::endl;
-// 			INode inode;
-// 			REQUIRE(fs->superblock->disk == disk.get());
-// 			inode.superblock = fs->superblock.get();
-// 			REQUIRE(inode.superblock->disk == disk.get());
-			
-// 			char str[] = "hello there!";
-// 			REQUIRE(inode.write(10 * 1024, str, sizeof(str)) == sizeof(str));
-
-// 			char buf[sizeof(str)];
-// 			REQUIRE(inode.read(10 * 1024, buf, sizeof(str)) == sizeof(str));
-// 			REQUIRE(strcmp(buf, str) == 0);
-// 		}catch(const FileSystemException &e){
-// 			std::cout<< e.message << std::endl;
-// 		}catch(const DiskException &e) {
-// 			std::cout<< e.message << std::endl;
-// 		}
-// 	}
-
-// 	SECTION("INodes can be written short strings at VERY LARGE offsets (a few hundred pages)"){
-// 		std::cout << std::endl << std::endl;
-// 		INode inode;
-// 		REQUIRE(fs->superblock->disk == disk.get());
-// 		inode.superblock = fs->superblock.get();
-// 		REQUIRE(inode.superblock->disk == disk.get());
+	SECTION("can write a thousand files, each of which contains a single number base 10 encoded") {
 		
-// 		char str[] = "hello there!";
-// 		REQUIRE(inode.write(10 * 1024 * 1024, str, sizeof(str)) == sizeof(str));
-
-// 		char buf[sizeof(str)];
-// 		REQUIRE(inode.read(10 * 1024 * 1024, buf, sizeof(str)) == sizeof(str));
-// 		REQUIRE(strcmp(buf, str) == 0);
-// 	}
-
-// }
-
-// TEST_CASE( "INodes read/write should work on a large disk with big writes (NOTE: inodes not properly allocated, THIS DOES NOT TEST INODE TABLE)", "[inodes]" ) {
-// 	constexpr uint64_t CHUNK_COUNT = 300 * 1024;
-// 	constexpr uint64_t CHUNK_SIZE = 1024;
-
-// 	std::unique_ptr<Disk> disk(new Disk(CHUNK_COUNT, CHUNK_SIZE));
-// 	std::unique_ptr<FileSystem> fs(new FileSystem(disk.get()));
-// 	fs->superblock->init(0.1);
-
-// 	// SECTION("Can write a 10KB file & read it back successfully"){
-// 	// 	std::cout << std::endl << std::endl;
-// 	// 	INode inode;
-// 	// 	REQUIRE(fs->superblock->disk == disk.get());
-// 	// 	inode.superblock = fs->superblock.get();
-// 	// 	REQUIRE(inode.superblock->disk == disk.get());
+		INode inode_dir = fs->superblock->inode_table->alloc_inode();
+		IDirectory directory(inode_dir);
 		
-// 	// 	char str[] = "Blanditiis pariatur alias distinctio aut. "
-// 	// 		"Occaecati et incidunt nesciunt dolorum est id excepturi. "
-// 	// 		"Sunt quod sapiente consequatur voluptate rerum voluptatum "
-// 	// 		"harum.";
-// 	// 	for (size_t i = 0; i < 10 * 1024; i += sizeof(str)) {
-// 	// 		REQUIRE(inode.write(i, str, sizeof(str)) == sizeof(str));
-// 	// 	}
+		for (int i = 0; i < 1000; ++i) {
+			char file_name[255];
+			char file_contents[255];
+			sprintf(file_contents, "the contents of this file is: %d\n", file_contents);
+			sprintf(file_name, "%d", i);
 
-// 	// 	char buf[sizeof(str)];
+			INode inode = fs->superblock->inode_table->alloc_inode();
+			REQUIRE(inode.write(0, file_contents, strlen(file_contents) + 1) == strlen(file_contents) + 1);
+			fs->superblock->inode_table->set_inode(inode.inode_table_idx, inode);
+
+			directory.add_file(file_name, inode);
+			fs->superblock->inode_table->set_inode(inode_dir.inode_table_idx, inode_dir);
+
+			std::cout << "i: " << i << std::endl;
+		}
+
+		// step 1: confirm that the number of directories matches the # we would expect
+		{
+			IDirectory::IDirEntry entry(&directory);
+			size_t count = 0;
+			while (entry.have_next()) {
+				entry.get_next();
+				count ++;
+			}
+
+			REQUIRE(count == 1000);
+		}
 		
-// 	// 	for (size_t i = 0; i < 10 * 1024; i += sizeof(str)) {
-// 	// 		REQUIRE(inode.read(i, buf, sizeof(str)) == sizeof(str));
-// 	// 		REQUIRE(strcmp(buf, str) == 0);
-// 	// 	}
-// 	// }
-
-// 	// SECTION("Can write a 100KB file & read it back successfully"){
-// 	// 	std::cout << std::endl << std::endl;
-// 	// 	INode inode;
-// 	// 	REQUIRE(fs->superblock->disk == disk.get());
-// 	// 	inode.superblock = fs->superblock.get();
-// 	// 	REQUIRE(inode.superblock->disk == disk.get());
 		
-// 	// 	char str[] = "Blanditiis pariatur alias distinctio aut. "
-// 	// 		"Occaecati et incidunt nesciunt dolorum est id excepturi. "
-// 	// 		"Sunt quod sapiente consequatur voluptate rerum voluptatum "
-// 	// 		"harum.";
-// 	// 	for (size_t i = 0; i < 100 * 1024; i += sizeof(str)) {
-// 	// 		if (inode.write(i, str, sizeof(str)) != sizeof(str)) {
-// 	// 			REQUIRE(false);
-// 	// 		}
-// 	// 	}
-
-// 	// 	char buf[sizeof(str)];
-		
-// 	// 	for (size_t i = 0; i < 100 * 1024; i += sizeof(str)) {
-// 	// 		if (inode.read(i, buf, sizeof(str)) != sizeof(str)) {
-// 	// 			REQUIRE(false);
-// 	// 		}
-// 	// 		if (strcmp(buf, str) != 0) {
-// 	// 			REQUIRE(false);
-// 	// 		}
-// 	// 	}
-// 	// }
-
-// 	// SECTION("Can write a single, very VERY large string all at once"){
-// 	// 	std::cout << std::endl << std::endl;
-// 	// 	INode inode;
-// 	// 	REQUIRE(fs->superblock->disk == disk.get());
-// 	// 	inode.superblock = fs->superblock.get();
-// 	// 	REQUIRE(inode.superblock->disk == disk.get());
-
-// 	// 	char *message = (char *)malloc(10 * 1024 + 1);
-// 	// 	for (size_t i = 0; i < 10 * 1024; ++i) {
-// 	// 		message[i] = 'a' + rand() % 26;
-// 	// 	}
-// 	// 	message[10 * 1024] = 0;
-
-// 	// 	std::cout << message << std::endl;
-
-// 	// 	REQUIRE(inode.write(0, message, 10 * 1024) == 10 * 1024);
-		
-// 	// 	char *buffer = (char *)malloc(10 * 1024 + 1);
-// 	// 	REQUIRE(inode.read(0, buffer, 10 * 1024) == 10 * 1024);
-// 	// 	buffer[10 * 1024] = 0; // null terminate it
-		
-// 	// 	std::cout << "READ BACK: " << buffer << std::endl;
-// 	// 	REQUIRE(strcmp(buffer, message) == 0);
-// 	// }
-
-// 	// const auto test_helper = [](int offset, int length) {
-// 	// 	std::unique_ptr<Disk> disk(new Disk(1024, 1024));
-// 	// 	std::unique_ptr<FileSystem> fs(new FileSystem(disk.get()));
-// 	// 	fs->superblock->init(0.1);
-
-// 	// 	INode inode;
-// 	// 	REQUIRE(fs->superblock->disk == disk.get());
-// 	// 	inode.superblock = fs->superblock.get();
-// 	// 	REQUIRE(inode.superblock->disk == disk.get());
-
-// 	// 	char *message = (char *)malloc(length + 1);
-// 	// 	for (size_t i = 0; i < 10 * 1024; ++i) {
-// 	// 		message[i] = 'a' + rand() % 26;
-// 	// 	}
-// 	// 	message[length] = 0;
-
-// 	// 	REQUIRE(inode.write(offset, message, length) == length);
-		
-// 	// 	char *buffer = (char *)malloc(length + 1);
-// 	// 	REQUIRE(inode.read(offset, buffer, length) == length);
-// 	// 	buffer[length] = 0; // null terminate it
-		
-// 	// 	REQUIRE(strcmp(buffer, message) == 0);
-// 	// };
-
-// 	// SECTION("Can write files of sizes from 1 byte to 10KB") {
-// 	// 	for (int i = 1; i < 10000; ++i) {
-// 	// 		test_helper(0, i);
-// 	// 	}
-// 	// }
-
-// 	// SECTION("Can write data with byte offsets from 1 to 10K Bytes of length 100 Bytes") {
-// 	// 	for (int i = 0; i < 10000; ++i) {
-// 	// 		test_helper(i, 100);
-// 	// 	}
-// 	// }
-
-// 	// SECTION("Can write data with byte offsets from 1 to 10K Bytes of length 2048 Bytes") {
-// 	// 	for (int i = 0; i < 10000; ++i) {
-// 	// 		test_helper(i, 2048);
-// 	// 	}
-// 	// }
-
-// 	// SECTION("Can write data with byte offsets from 1 to 10K Bytes of length 4312 Bytes") {
-// 	// 	for (int i = 0; i < 10000; ++i) {
-// 	// 		test_helper(i, 4312);
-// 	// 	}
-// 	// }
-
-// 	// TODO: add test for case where disk runs out of space, see what happens
-// }
+	}
+}

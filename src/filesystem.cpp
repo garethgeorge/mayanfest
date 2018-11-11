@@ -8,8 +8,7 @@
 #include "diskinterface.hpp"
 #include "filesystem.hpp"
 
-#define DEBUG
-
+// #define DEBUG
 
 using Size = uint64_t;
 
@@ -19,6 +18,14 @@ uint64_t INode::read(uint64_t starting_offset, char *buf, uint64_t bytes_to_writ
 	const uint64_t chunk_size = this->superblock->disk_chunk_size;
     int64_t n = bytes_to_write;
     uint64_t bytes_written = bytes_to_write;
+
+    if (starting_offset + bytes_to_write > this->data.file_size) {
+        // TODO: test this error case
+        if (starting_offset > this->data.file_size) 
+            return 0;
+
+        bytes_to_write = this->data.file_size - starting_offset;
+    }
     
     // room to write for the first chunk
     const uint64_t room_first_chunk = chunk_size - starting_offset % chunk_size;
@@ -68,6 +75,10 @@ uint64_t INode::write(uint64_t starting_offset, const char *buf, uint64_t bytes_
     int64_t n = bytes_to_write;
     uint64_t bytes_written = bytes_to_write;
     
+    if (starting_offset + bytes_to_write > this->data.file_size) {
+        this->data.file_size = starting_offset + bytes_to_write;
+    }
+
     // room to write for the first chunk
     const uint64_t room_first_chunk = chunk_size - starting_offset % chunk_size;
     uint64_t bytes_write_first_chunk = room_first_chunk;
