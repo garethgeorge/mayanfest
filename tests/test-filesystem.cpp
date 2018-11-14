@@ -359,40 +359,93 @@ TEST_CASE("INodes can be used to store and read directories", "[filesystem][idir
 	std::unique_ptr<FileSystem> fs(new FileSystem(disk.get()));
 	fs->superblock->init(0.1);
 
-	SECTION("can write a thousand files, each of which contains a single number base 10 encoded") {
-		
+	SECTION("Can write a SINGLE file to a directory") {
 		INode inode_dir = fs->superblock->inode_table->alloc_inode();
+		INode inode_file = fs->superblock->inode_table->alloc_inode();
+		inode_file.write(0, "hello there!!!", sizeof("hello there!!!"));
+		fs->superblock->inode_table->set_inode(inode_file.inode_table_idx, inode_file);
 		IDirectory directory(inode_dir);
-		
-		for (int i = 0; i < 1000; ++i) {
-			char file_name[255];
-			char file_contents[255];
-			sprintf(file_contents, "the contents of this file is: %d\n", file_contents);
-			sprintf(file_name, "%d", i);
-
-			INode inode = fs->superblock->inode_table->alloc_inode();
-			REQUIRE(inode.write(0, file_contents, strlen(file_contents) + 1) == strlen(file_contents) + 1);
-			fs->superblock->inode_table->set_inode(inode.inode_table_idx, inode);
-
-			directory.add_file(file_name, inode);
-			fs->superblock->inode_table->set_inode(inode_dir.inode_table_idx, inode_dir);
-
-			std::cout << "i: " << i << std::endl;
-		}
-
-		// step 1: confirm that the number of directories matches the # we would expect
-		{
-			IDirectory::IDirEntry entry(&directory);
-			size_t count = 0;
-			while (entry.have_next()) {
-				entry.get_next();
-				std::cout << "FILENAME: " << entry.filename << std::endl;
-				count++;
-			}
-
-			REQUIRE(count == 1000);
-		}
-		
-		
+		directory.initializeEmpty();
+		directory.add_file("hello_world", inode_file);
+		directory.flush();
+		fs->superblock->inode_table->set_inode(inode_dir.inode_table_idx, inode_dir);
 	}
+
+	SECTION("Can write a SINGLE file to a directory AND get it back") {
+		INode inode_dir = fs->superblock->inode_table->alloc_inode();
+		INode inode_file = fs->superblock->inode_table->alloc_inode();
+		inode_file.write(0, "hello there!!!", sizeof("hello there!!!"));
+		fs->superblock->inode_table->set_inode(inode_file.inode_table_idx, inode_file);
+		IDirectory directory(inode_dir);
+		directory.initializeEmpty();
+		directory.add_file("hello_world", inode_file);
+		directory.flush();
+		fs->superblock->inode_table->set_inode(inode_dir.inode_table_idx, inode_dir);
+
+		std::unique_ptr<IDirectory::DirEntry> entry = directory.next_entry(nullptr);
+		REQUIRE(entry != nullptr);
+		REQUIRE(entry->data.inode_idx == inode_file.inode_table_idx);
+		REQUIRE(strcmp(entry->filename, "hello_world") == 0);
+	}
+
+	SECTION("Can write TWO files to a directory AND get them back") {
+		INode inode_dir = fs->superblock->inode_table->alloc_inode();
+		INode inode_file = fs->superblock->inode_table->alloc_inode();
+		INode inode_file2 = fs->superblock->inode_table->alloc_inode();
+		inode_file.write(0, "hello there!!!", sizeof("hello there!!!"));
+		inode_file2.write(0, "hello there!!!", sizeof("hello there!!!"));
+		fs->superblock->inode_table->set_inode(inode_file.inode_table_idx, inode_file);
+		fs->superblock->inode_table->set_inode(inode_file2.inode_table_idx, inode_file2);
+		IDirectory directory(inode_dir);
+		directory.initializeEmpty();
+		directory.add_file("hello_world", inode_file);
+		directory.add_file("hello_world2", inode_file2);
+		directory.flush();
+		fs->superblock->inode_table->set_inode(inode_dir.inode_table_idx, inode_dir);
+
+		std::unique_ptr<IDirectory::DirEntry> entry = directory.next_entry(nullptr);
+		REQUIRE(entry->data.inode_idx == inode_file.inode_table_idx);
+		REQUIRE(strcmp(entry->filename, "hello_world") == 0);
+
+		std::unique_ptr<IDirectory::DirEntry> entry2 = directory.next_entry(entry);
+		REQUIRE(entry2->data.inode_idx == inode_file2.inode_table_idx);
+		REQUIRE(strcmp(entry2->filename, "hello_world2") == 0);
+	}
+
+	// SECTION("can write a thousand files, each of which contains a single number base 10 encoded") {
+		
+	// 	INode inode_dir = fs->superblock->inode_table->alloc_inode();
+	// 	IDirectory directory(inode_dir);
+		
+	// 	for (int i = 0; i < 1000; ++i) {
+	// 		char file_name[255];
+	// 		char file_contents[255];
+	// 		sprintf(file_contents, "the contents of this file is: %d\n", file_contents);
+	// 		sprintf(file_name, "%d", i);
+
+	// 		INode inode = fs->superblock->inode_table->alloc_inode();
+	// 		REQUIRE(inode.write(0, file_contents, strlen(file_contents) + 1) == strlen(file_contents) + 1);
+	// 		fs->superblock->inode_table->set_inode(inode.inode_table_idx, inode);
+
+	// 		directory.add_file(file_name, inode);
+	// 		fs->superblock->inode_table->set_inode(inode_dir.inode_table_idx, inode_dir);
+
+	// 		std::cout << "i: " << i << std::endl;
+	// 	}
+
+	// 	// step 1: confirm that the number of directories matches the # we would expect
+	// 	{
+	// 		IDirectory::IDirEntry entry(&directory);
+	// 		size_t count = 0;
+	// 		while (entry.have_next()) {
+	// 			entry.get_next();
+	// 			std::cout << "FILENAME: " << entry.filename << std::endl;
+	// 			count++;
+	// 		}
+
+	// 		REQUIRE(count == 1000);
+	// 	}
+		
+		
+	// }
 }

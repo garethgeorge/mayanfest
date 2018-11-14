@@ -8,6 +8,7 @@
 #define MAX_FN_SIZE 256
 #define MAX_PL_SIZE 4096
 
+/*
 struct MockSyscalls {
     FileSystem * fs;
 
@@ -81,5 +82,6 @@ struct MockSyscalls {
 
     }
 };
+*/
 
 #endif

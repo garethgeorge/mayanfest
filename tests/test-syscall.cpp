@@ -2,6 +2,7 @@
 #include "catch.hpp"
 #include <vector>
 
+/*
 TEST_CASE( "Parsing path should work", "[syscall]" ) {
     MockSyscalls ms = MockSyscalls();
     std::vector<std::string> pp = ms.parse_path("/foo/bar/baz/bat/");
@@ -40,3 +41,4 @@ TEST_CASE( "mknod should work", "[syscall]" ) {
     ms.mknod("/asdf.hello");
     
 }
+*/
