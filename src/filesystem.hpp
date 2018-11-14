@@ -257,13 +257,25 @@ public:
 		}
 	}
 
+	std::unique_ptr<DirEntry> get_file(const char *filename) {
+		std::unique_ptr<DirEntry> entry = nullptr;
+
+		while (entry = this->next_entry(entry)) {
+			if (strcmp(entry->filename, filename) == 0) {
+				return entry;
+			}
+		}
+
+		return nullptr;
+	}
+
 	std::unique_ptr<DirEntry> next_entry(const std::unique_ptr<DirEntry>& entry) {
 		std::unique_ptr<DirEntry> next(new DirEntry(this->inode));
 		if (entry == nullptr) {
 			if (header.record_count == 0)
 				return nullptr;
 
-			next->read_from_disk(sizeof(DirHeader));
+			next->read_from_disk(this->header.dir_entries_head);
 		} else {
 			if (entry->data.next_entry_ptr == 0) 
 				return nullptr; // reached the end of the linked list
