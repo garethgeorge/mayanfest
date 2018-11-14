@@ -246,9 +246,6 @@ TEST_CASE("Smaller version of INode write all, then readback all, reconstruct di
 		std::memcpy((void *)(mem_file.get() + offset - BASE_OFFSET), &(buffer[0]), size);
 	}
 
-
-	// NOTE: YOU MUST WRITE INODES BACK OUT WHEN YOU ARE DONE WITH THEM 
-	inode.data.file_size = FILE_SIZE;
 	fs->superblock->inode_table->set_inode(inode.inode_table_idx, inode); 
 
 	REQUIRE(inode.read(BASE_OFFSET, mem_file_readback.get(), FILE_SIZE) == FILE_SIZE);
@@ -412,7 +409,7 @@ TEST_CASE("INodes can be used to store and read directories", "[filesystem][idir
 		REQUIRE(strcmp(entry2->filename, "hello_world2") == 0);
 	}
 
-	SECTION("Can write TWO files to a directory AND get them back BY NAME") {
+	SECTION("Can write TWO files to a directory AND get them back BY NAME and then remove them both") {
 		INode inode_dir = fs->superblock->inode_table->alloc_inode();
 		INode inode_file = fs->superblock->inode_table->alloc_inode();
 		INode inode_file2 = fs->superblock->inode_table->alloc_inode();
@@ -434,6 +431,14 @@ TEST_CASE("INodes can be used to store and read directories", "[filesystem][idir
 		std::unique_ptr<IDirectory::DirEntry> entry2 = directory.get_file("hello_world2");
 		REQUIRE(entry2->data.inode_idx == inode_file2.inode_table_idx);
 		REQUIRE(strcmp(entry2->filename, "hello_world2") == 0);
+
+		// TEST REMOVING A FILE
+		REQUIRE(directory.remove_file("hello_world") != nullptr);
+		REQUIRE(directory.get_file("hello_world") == nullptr);
+
+		// TEST REMOVING A FILE
+		// REQUIRE(directory.remove_file("hello_world2") != nullptr);
+		// REQUIRE(directory.get_file("hello_world2") == nullptr);
 	}
 
 	// SECTION("can write a thousand files, each of which contains a single number base 10 encoded") {

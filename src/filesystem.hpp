@@ -142,6 +142,9 @@ struct INode {
 };
 
 
+/*
+	TODO: implement cleaning of a directory
+*/
 struct IDirectory {
 private:
 	struct DirHeader {
@@ -166,6 +169,7 @@ public:
 
 		DirEntry(INode *inode) : inode(inode) { };
 
+		uint64_t offset = 0;
 		INode* inode;
 		DirEntryData data;
 		char *filename = nullptr;
@@ -178,6 +182,8 @@ public:
 
 		// returns the size of the thing it read
 		uint64_t read_from_disk(size_t offset) {
+			this->offset = offset;
+
 			this->inode->read(offset, (char *)(&(this->data)), sizeof(DirEntryData));
 			offset += sizeof(DirEntryData);
 			
@@ -195,6 +201,8 @@ public:
 
 		// only pass filename if you want to update it
 		uint64_t write_to_disk(size_t offset, const char *filename) {
+			this->offset = offset;
+
 			this->inode->write(offset, (char *)(&(this->data)), sizeof(DirEntryData));
 			offset += sizeof(DirEntryData);
 			
@@ -222,21 +230,26 @@ public:
 		inode->write(0, (char *)&header, sizeof(DirHeader));
 	}
 
-	void add_file(const char *filename, const INode &child) {
-		
+	std::unique_ptr<DirEntry> add_file(const char *filename, const INode &child) {
+		if (this->get_file(filename) != nullptr) {
+			return nullptr;
+		}
+
 		if (header.dir_entries_head == 0) {
 			// then it is the first and only element in the linked list!
-			DirEntry entry(this->inode);
-			entry.data.filename_length = strlen(filename);
-			entry.data.inode_idx = child.inode_table_idx;
-			entry.filename = strdup(filename);
+			std::unique_ptr<DirEntry> entry(new DirEntry(this->inode));
+			entry->data.filename_length = strlen(filename);
+			entry->data.inode_idx = child.inode_table_idx;
+			entry->filename = strdup(filename);
 			// returns the offset after the write of the entry
-			size_t next_offset = entry.write_to_disk(sizeof(DirHeader), entry.filename);
+			size_t next_offset = entry->write_to_disk(sizeof(DirHeader), entry->filename);
 			header.dir_entries_head = sizeof(DirHeader);
 			header.dir_entries_tail = sizeof(DirHeader);
 			header.record_count++;
 			// finally, flush ourselves to the disk
+			
 			this->flush();
+			return std::move(entry);
 		} else {
 
 			DirEntry last_entry(this->inode);
@@ -244,16 +257,17 @@ public:
 			last_entry.data.next_entry_ptr = next_offset;
 			last_entry.write_to_disk(header.dir_entries_tail, nullptr);
 
-			DirEntry new_entry(this->inode);
-			new_entry.data.filename_length = strlen(filename);
-			new_entry.data.inode_idx = child.inode_table_idx;
-			new_entry.filename = strdup(filename);
-			next_offset = new_entry.write_to_disk(next_offset, new_entry.filename);
+			std::unique_ptr<DirEntry> new_entry(new DirEntry(this->inode));
+			new_entry->data.filename_length = strlen(filename);
+			new_entry->data.inode_idx = child.inode_table_idx;
+			new_entry->filename = strdup(filename);
+			next_offset = new_entry->write_to_disk(next_offset, new_entry->filename);
 
 			header.dir_entries_tail = next_offset;
 			header.record_count++;
 
 			this->flush();
+			return std::move(new_entry);
 		}
 	}
 
@@ -264,6 +278,44 @@ public:
 			if (strcmp(entry->filename, filename) == 0) {
 				return entry;
 			}
+		}
+
+		return nullptr;
+	}
+
+	std::unique_ptr<DirEntry> remove_file(const char *filename) {
+		// TODO: update reference count when removing a file
+
+		std::unique_ptr<DirEntry> last_entry = nullptr;
+		std::unique_ptr<DirEntry> entry = nullptr;
+
+		while (entry = this->next_entry(entry)) {
+			if (strcmp(entry->filename, filename) == 0) {
+				std::cout << "REMOVING A FILE WITH THE NAME: " << filename << std::endl;
+				if (last_entry == nullptr) {
+					std::cout << "\tLAST ENTRY IS NULL PTR, MOVING HEAD FORWARD TO: " << header.dir_entries_head << std::endl;
+					header.dir_entries_head = entry->data.next_entry_ptr;
+					if (entry->data.next_entry_ptr == 0) {
+						std::cout << "\tNEXT_ENTRY_PTR IS NULL, SETTING TAIL TO 0" << std::endl;
+						header.dir_entries_tail = 0;
+
+						std::cout << "\t\tVALUES OF HEAD AND TAIL ARE " << header.dir_entries_head << ", " << header.dir_entries_tail << std::endl;
+					}
+				} else {
+					std::cout << "LAST ENTRY NOT NULL, UPDATING LAST_ENTRY's NEXT_ENTRY_PTR TO " << entry->data.next_entry_ptr << std::endl;
+					last_entry->data.next_entry_ptr = entry->data.next_entry_ptr;
+					last_entry->write_to_disk(last_entry->offset, nullptr);
+
+					if (last_entry->data.next_entry_ptr == 0) {
+						header.dir_entries_tail = last_entry->offset;
+					}
+				}
+				
+				header.deleted_record_count++;
+				header.record_count++;
+				return std::move(entry);
+			}
+			last_entry = std::move(entry);
 		}
 
 		return nullptr;
