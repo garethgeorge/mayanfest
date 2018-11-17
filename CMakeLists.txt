@@ -59,5 +59,12 @@ add_executable(cmake_test
 
 target_link_libraries(cmake_test mayanfest)
 
+# create fuse binary
+add_executable(mkfs
+  mkfs.cpp
+)
+
+target_link_libraries(mkfs mayanfest)
+
 # Finally, apply coiture
 cotire(cmake_test)

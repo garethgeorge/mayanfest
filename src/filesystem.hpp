@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <string>
 #include <cassert>
+#include <sys/stat.h>
 
 #include "diskinterface.hpp"
 
@@ -39,6 +40,7 @@ struct SuperBlock {
   std::unique_ptr<INodeTable> inode_table;
   
   uint64_t data_offset; //where free chunks begin
+  uint64_t root_inode_index = 0;
   
   SuperBlock(Disk *disk);
   
@@ -114,15 +116,20 @@ struct INode {
 	static constexpr uint64_t ADDRESS_COUNT = DIRECT_ADDRESS_COUNT + INDIRECT_ADDRESS_COUNT + DOUBLE_INDIRECT_ADDRESS_COUNT + TRIPPLE_INDIRECT_ADDRESS_COUNT;
 	static const uint64_t INDIRECT_TABLE_SIZES[4];
 
+	static constexpr uint8_t FLAG_IF_DIR = 1;
+	static constexpr uint8_t FLAG_IF_REG = 2;
+
 	struct INodeData {
 		// we store the data in a subclass so that it can be serialized independently 
 		// from data structures that INode needs to keep when loaded in memory
 		uint64_t UID = 0; // user id
+		uint64_t GID = 0; // group id
 		uint64_t last_modified = 0; //last modified timestamp
 		uint64_t file_size = 0; //size of file
-		uint64_t reference_count = 0; //reference count to the inode
+		//uint64_t reference_count = 0; //reference count to the inode
 		uint64_t addresses[ADDRESS_COUNT] = {0}; //8 direct
-		std::bitset<11> inode_bits; //rwxrwxrwx (ow, g, oth) dir special 
+		uint16_t permissions; //rwxrwxrwx (ow, g, oth) 
+		uint8_t file_type;
 	};
 	
 	uint64_t inode_table_idx = 0;
@@ -141,6 +148,30 @@ struct INode {
 	void release_chunks(); // use this before removing an inode from the inode table
 
 	std::string to_string();
+
+	void set_type(mode_t type){
+	    switch(type){
+		case S_IFDIR:
+		    this->data.file_type = FLAG_IF_DIR;
+		    break;
+		case S_IFREG:
+		    this->data.file_type = FLAG_IF_REG;
+		    break;
+		default:
+		    throw FileSystemException("Invalid File Type");
+	    }
+	}
+
+	mode_t get_type(){
+	    switch(this->data.file_type){
+		case FLAG_IF_DIR:
+		    return S_IFDIR;
+		case FLAG_IF_REG:
+		    return S_IFREG;
+		default:
+		    throw FileSystemException("Invalid File Type");
+	    }
+	}
 };
 
 

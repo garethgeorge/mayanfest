@@ -383,6 +383,13 @@ void SuperBlock::init(double inode_table_size_rel_to_disk) {
 
     this->data_offset = offset;
 
+    //setup root directory
+    INode inode = this->inode_table->alloc_inode();
+    IDirectory root_dir(inode);
+    root_dir.add_file(".", inode);
+    root_dir.add_file("..", inode);
+    this->inode_table->set_inode(inode.inode_table_idx, inode);
+    this->root_inode_index = inode.inode_table_idx;
     //serialize to disk
     {
         auto sb_chunk = disk->get_chunk(0);
@@ -407,6 +414,8 @@ void SuperBlock::init(double inode_table_size_rel_to_disk) {
         *(uint64_t *)(sb_data+offset) = inode_table_inode_count;
         offset += sizeof(uint64_t);
         *(uint64_t *)(sb_data+offset) = data_offset;
+        offset += sizeof(uint64_t);
+        *(uint64_t *)(sb_data+offset) = root_inode_index;
         disk->flush_chunk(*sb_chunk);
         {
             auto sb_chunk = disk->get_chunk(0);
@@ -454,6 +463,8 @@ void SuperBlock::load_from_disk(Disk * disk) {
     uint64_t inode_table_inode_count = *(uint64_t *)(sb_data+offset);
     offset += sizeof(uint64_t);
     data_offset = *(uint64_t *)(sb_data+offset);
+    offset += sizeof(uint64_t);
+    this->root_inode_index = *(uint64_t *)(sb_data+offset);
 
     offset = this->superblock_size_chunks;
 
