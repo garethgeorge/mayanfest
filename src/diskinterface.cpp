@@ -112,13 +112,13 @@ static bool bitmap_init_cache(std::array<DiskBitMap::BitRange, 256>& cache) {
 
 static bool find_unset_cache_initialized = bitmap_init_cache(DiskBitMap::find_unset_cache);
 
-DiskBitMap::BitRange DiskBitMap::find_unset_bits(Size length) const {
+DiskBitMap::BitRange DiskBitMap::find_unset_bits(Size length) {
 	using BitRange = DiskBitMap::BitRange;
 	
 	// fprintf(stdout, "SCANNING BITMAP (SIZE IN BITS): %llu\n", this->size_in_bits);
 
 	BitRange retval;
-	for (Size idx = 0; idx < this->size_in_bits; idx += 8) {
+	for (Size idx = last_search_idx; idx < this->size_in_bits; idx += 8) {
 		const Byte byte = (size_t)this->get_byte_for_idx(idx);
 		BitRange res = find_unset_cache[byte];
 		res.start_idx += idx;
@@ -127,6 +127,7 @@ DiskBitMap::BitRange DiskBitMap::find_unset_bits(Size length) const {
 
 		// if retval already set, the next set of bits must start immediately where the last one ends
 		if (retval.bit_count != 0 && res.start_idx != retval.start_idx + retval.bit_count) {
+			last_search_idx = idx;
 			break ;
 		}
 
@@ -138,6 +139,7 @@ DiskBitMap::BitRange DiskBitMap::find_unset_bits(Size length) const {
 			}
 			
 			if (retval.bit_count >= length) {
+				last_search_idx = idx;
 				break;
 			}
 		}
@@ -146,6 +148,11 @@ DiskBitMap::BitRange DiskBitMap::find_unset_bits(Size length) const {
 	// bitcount should be limited to the length requested
 	if (retval.bit_count > length) {
 		retval.bit_count = length;
+	}
+
+	if (retval.bit_count == 0 && last_search_idx != 0) {
+		this->last_search_idx = 0;
+		return this->find_unset_bits(length);
 	}
 
 	return retval;

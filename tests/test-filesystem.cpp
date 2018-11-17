@@ -50,7 +50,6 @@ TEST_CASE( "Making a filesystem should work", "[filesystem]" ) {
 
 TEST_CASE("INode read/write test", "[filesystem][readwrite][readwrite.orderly]") {
 	const auto test_inode = [](int offset, int length) {
-		std::cout << "START TESTINODE" << std::endl;
 		std::unique_ptr<Disk> disk(new Disk(1024, 512));
 		std::vector<char> read_back;
 
@@ -59,7 +58,6 @@ TEST_CASE("INode read/write test", "[filesystem][readwrite][readwrite.orderly]")
 
 		to_write.push_back('\0');
 		{
-			std::cout << "CHECK POINT 1" << std::endl;
 			std::unique_ptr<FileSystem> fs(new FileSystem(disk.get()));
 			fs->superblock->init(0.1);
 
@@ -68,8 +66,6 @@ TEST_CASE("INode read/write test", "[filesystem][readwrite][readwrite.orderly]")
 			INode inode = fs->superblock->inode_table->alloc_inode();
 			inode_idx = inode.inode_table_idx;
 
-			std::cout << "CHECK POINT 2" << std::endl;
-
 			inode.superblock = fs->superblock.get();
 			REQUIRE(inode.superblock->disk == disk.get());
 
@@ -77,7 +73,6 @@ TEST_CASE("INode read/write test", "[filesystem][readwrite][readwrite.orderly]")
 			if (inode.data.file_size < offset + length) {
 				inode.data.file_size = offset + length;
 			}
-			std::cout << "CHECK POINT 3" << std::endl;
 			fs->superblock->inode_table->set_inode(inode_idx, inode); // store back the inode
 			
 			REQUIRE(inode.read(offset, &(read_back[0]), length) == length);
@@ -86,8 +81,6 @@ TEST_CASE("INode read/write test", "[filesystem][readwrite][readwrite.orderly]")
 			fs = nullptr;
 		}
 
-		std::cout << "MIDWAY THROUGH TEST INODE" << std::endl;
-		
 		{
 			std::unique_ptr<FileSystem> fs(new FileSystem(disk.get()));
 			fs->superblock->load_from_disk(disk.get());
@@ -105,8 +98,6 @@ TEST_CASE("INode read/write test", "[filesystem][readwrite][readwrite.orderly]")
 
 			fs = nullptr;
 		}
-
-		std::cout << "STOP TEST INODE" << std::endl;
 	};
 
 	SECTION("Can write strings of length 1 - 10000") {
@@ -437,44 +428,73 @@ TEST_CASE("INodes can be used to store and read directories", "[filesystem][idir
 		REQUIRE(directory.get_file("hello_world") == nullptr);
 
 		// TEST REMOVING A FILE
-		// REQUIRE(directory.remove_file("hello_world2") != nullptr);
-		// REQUIRE(directory.get_file("hello_world2") == nullptr);
+		REQUIRE(directory.remove_file("hello_world2") != nullptr);
+		REQUIRE(directory.get_file("hello_world2") == nullptr);
 	}
 
-	// SECTION("can write a thousand files, each of which contains a single number base 10 encoded") {
+	SECTION("can write a thousand files, each of which contains a single number base 10 encoded") {
 		
-	// 	INode inode_dir = fs->superblock->inode_table->alloc_inode();
-	// 	IDirectory directory(inode_dir);
+		INode inode_dir = fs->superblock->inode_table->alloc_inode();
+		IDirectory directory(inode_dir);
+		directory.initializeEmpty();
+
+		for (int i = 0; i < 100; ++i) {
+			char file_name[255];
+			
+			sprintf(file_name, "file-%d\0", i);
+
+			char file_contents[255];
+			sprintf(file_contents, "the contents of this file is: %d\n", i);
+			INode inode = fs->superblock->inode_table->alloc_inode();
+			REQUIRE(inode.write(0, file_contents, strlen(file_contents) + 1) == strlen(file_contents) + 1);
+			fs->superblock->inode_table->set_inode(inode.inode_table_idx, inode);
+
+			directory.add_file(file_name, inode);
+			fs->superblock->inode_table->set_inode(inode_dir.inode_table_idx, inode_dir);
+		}
+
+		// step 1: confirm that the number of directories matches the # we would expect
+		{
+			std::unique_ptr<IDirectory::DirEntry> entry = nullptr;
+			size_t count = 0;
+			while (entry = directory.next_entry(entry)) {
+				count++;
+			}
+
+			REQUIRE(count == 100);
+		}
+
+		// step 2: read back each file 1 at a time checking that its contents matches the expected, and then removing it
+
+		for (int i = 0; i < 100; ++i) {
+			char file_name[255];
+			char file_contents[255];
+			char file_contents_expected[255];
+			memset(file_contents, 0, sizeof(file_contents));
+			
+			sprintf(file_name, "file-%d\0", i);
+			sprintf(file_contents_expected, "the contents of this file is: %d\n", i);
+
+			// read the file contents
+			auto direntry = directory.get_file(file_name);
+			auto file_inode = fs->superblock->inode_table->get_inode(direntry->data.inode_idx);
+			file_inode.read(0, file_contents, file_inode.data.file_size);
+
+			REQUIRE(strcmp(file_contents_expected, file_contents) == 0);
+
+			REQUIRE(directory.remove_file(file_name)->data.inode_idx == direntry->data.inode_idx);
+			fs->superblock->inode_table->set_inode(inode_dir.inode_table_idx, inode_dir);
+		}
 		
-	// 	for (int i = 0; i < 1000; ++i) {
-	// 		char file_name[255];
-	// 		char file_contents[255];
-	// 		sprintf(file_contents, "the contents of this file is: %d\n", file_contents);
-	// 		sprintf(file_name, "%d", i);
+		// step 2: confirm that the number of directories matches the # we would expect (0 b/c we removed them all)
+		{
+			std::unique_ptr<IDirectory::DirEntry> entry = nullptr;
+			size_t count = 0;
+			while (entry = directory.next_entry(entry)) {
+				count++;
+			}
 
-	// 		INode inode = fs->superblock->inode_table->alloc_inode();
-	// 		REQUIRE(inode.write(0, file_contents, strlen(file_contents) + 1) == strlen(file_contents) + 1);
-	// 		fs->superblock->inode_table->set_inode(inode.inode_table_idx, inode);
-
-	// 		directory.add_file(file_name, inode);
-	// 		fs->superblock->inode_table->set_inode(inode_dir.inode_table_idx, inode_dir);
-
-	// 		std::cout << "i: " << i << std::endl;
-	// 	}
-
-	// 	// step 1: confirm that the number of directories matches the # we would expect
-	// 	{
-	// 		IDirectory::IDirEntry entry(&directory);
-	// 		size_t count = 0;
-	// 		while (entry.have_next()) {
-	// 			entry.get_next();
-	// 			std::cout << "FILENAME: " << entry.filename << std::endl;
-	// 			count++;
-	// 		}
-
-	// 		REQUIRE(count == 1000);
-	// 	}
-		
-		
-	// }
+			REQUIRE(count == 0);
+		}
+	}
 }

@@ -141,6 +141,7 @@ struct DiskBitMap {
 	Disk *disk;
 	Size size_in_bits;
 	std::vector<std::shared_ptr<Chunk>> chunks;
+	Size last_search_idx = 0;
 
 	DiskBitMap(Disk *disk, Size chunk_start, Size size_in_bits);
 
@@ -204,7 +205,7 @@ struct DiskBitMap {
 	static std::array<BitRange, 256> find_unset_cache;
 	static uint64_t find_last_byte_idx;
 	
-	BitRange find_unset_bits(Size length) const;
+	BitRange find_unset_bits(Size length);
 };
 
 

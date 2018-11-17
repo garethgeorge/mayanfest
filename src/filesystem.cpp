@@ -88,6 +88,8 @@ uint64_t INode::write(uint64_t starting_offset, const char *buf, uint64_t bytes_
     int64_t n = bytes_to_write;
     uint64_t bytes_written = bytes_to_write;
     
+    // std::cout << "WRITING BYTES: starting offset " << starting_offset << " count " << bytes_to_write << std::endl;
+
     if (starting_offset + bytes_to_write > this->data.file_size) {
         this->data.file_size = starting_offset + bytes_to_write;
     }
@@ -102,12 +104,11 @@ uint64_t INode::write(uint64_t starting_offset, const char *buf, uint64_t bytes_
     {
         std::shared_ptr<Chunk> chunk = this->resolve_indirection(starting_offset / chunk_size, true);
         std::lock_guard<std::mutex> g(chunk->lock);
-        std::memcpy(chunk->data.get() + starting_offset % chunk_size, buf, bytes_write_first_chunk);
+        std::memcpy(chunk->data.get() + (starting_offset % chunk_size), buf, bytes_write_first_chunk);
         buf += bytes_write_first_chunk;
         n -= bytes_write_first_chunk;
     }
     
-
     if (n == 0) { // early return if we wrote less than a chunk
         return bytes_to_write;
     }
@@ -120,7 +121,6 @@ uint64_t INode::write(uint64_t starting_offset, const char *buf, uint64_t bytes_
         std::shared_ptr<Chunk> chunk = this->resolve_indirection(starting_offset / chunk_size, true);
         std::lock_guard<std::mutex> g(chunk->lock);
         std::memcpy(chunk->data.get(), buf, chunk_size);
-
         buf += chunk_size;
         n -= chunk_size;
         starting_offset += chunk_size;
@@ -253,16 +253,20 @@ std::string INode::to_string() {
     return out.str();
 }
 
-INodeTable::INodeTable(SuperBlock *superblock, uint64_t offset, uint64_t size_chunks) : superblock(superblock) {
-    inode_table_offset = offset;
-    inodes_per_chunk = superblock->disk_chunk_size / sizeof(INode::INodeData);
+INodeTable::INodeTable(SuperBlock *superblock, uint64_t offset, uint64_t inode_count) : superblock(superblock) {
+    this->inode_count = inode_count;
+    this->inode_table_offset = offset;
+    this->inodes_per_chunk = superblock->disk_chunk_size / sizeof(INode::INodeData);
 
-    inode_table_size_chunks = size_chunks;
-    inode_count = inodes_per_chunk * size_chunks;
-    used_inodes = std::unique_ptr<DiskBitMap>(
-        new DiskBitMap(superblock->disk, inode_table_offset, inode_count)
+    // allocate this at the beginning of the table 
+    this->used_inodes = std::unique_ptr<DiskBitMap>(
+        new DiskBitMap(superblock->disk, this->inode_table_offset, inode_count)
     );
-    inode_ilist_offset = size_chunks + this->used_inodes->size_chunks();
+    
+    this->inode_ilist_offset = this->inode_table_offset + this->used_inodes->size_chunks();
+    
+    
+    this->inode_table_size_chunks = this->used_inodes->size_chunks() + inode_count / inodes_per_chunk + 1;
 }
 
 void INodeTable::format_inode_table() {
@@ -272,7 +276,7 @@ void INodeTable::format_inode_table() {
 
 // returns the size of the entire table in chunks
 uint64_t INodeTable::size_chunks() {
-    return used_inodes->size_chunks() + inode_table_size_chunks;
+    return inode_table_size_chunks;
 }
 
 INode INodeTable::alloc_inode() {
@@ -338,88 +342,86 @@ SuperBlock::SuperBlock(Disk *disk)
 }
 
 void SuperBlock::init(double inode_table_size_rel_to_disk) {
-    //requested size of things in chunks
-    inode_table_size_chunks = inode_table_size_rel_to_disk * disk_size_chunks;
+    uint64_t offset = this->superblock_size_chunks; // sspace reserved for the superblock's header
 
-    //std::cout << "requested disk block map size in chunks is " << disk->size_chunks() << std::endl;
-
-    //block map init
-    //std::cout << "BEGIN INITIALIZE BLOCK MAP" << std::endl;
-    disk_block_map_offset = superblock_size_chunks; 
-    disk_block_map = std::unique_ptr<DiskBitMap>(new DiskBitMap(disk, disk_block_map_offset, disk->size_chunks()));
-    disk_block_map->clear_all();
-    //std::cout << "FINISHED INITIALIZE BLOCK MAP" << std::endl;
-    
-    //block map size in chunks
-    disk_block_map_size_chunks = disk_block_map->size_chunks();
-
-    //check that metadata isn't too big
-    if(superblock_size_chunks + inode_table_size_chunks + disk_block_map_size_chunks >= disk_size_chunks) {
-    //    std::cout << "meta data exceeds disk size..." << std::endl;
-	//std::cout << "block map size in chunks = " << disk_block_map_size_chunks << std::endl;
-	//std::cout << "inode table size in chunks = " << inode_table_size_chunks << std::endl;
-	//std::cout << "superblock size chunks = " << superblock_size_chunks << std::endl;
-	//std::cout << "disk size chunks = " << disk_size_chunks << std::endl;
-        throw new FileSystemException("Requested size of superblock, inode table, and bit map exceeds size of disk");
+    if (this->disk->size_chunks() < 16 || disk->size_chunks() * (1.0 - inode_table_size_rel_to_disk) < 16) {
+        throw new FileSystemException("Requested size of superblock, inode table, and bitmap will potentially exceed disk size");
     }
 
-    //create inode table
-    //use the actual size of the block map made for the next offset
-    inode_table_offset = superblock_size_chunks + disk_block_map->size_chunks();
-    //std::cout << "Inode table offset is " << inode_table_offset << std::endl;
-    inode_table = std::unique_ptr<INodeTable>(new INodeTable(this, inode_table_offset, inode_table_size_chunks));
-    inode_table->format_inode_table();
+    // initialize the disk block map
+    {
+        this->disk_block_map = std::unique_ptr<DiskBitMap>(
+            new DiskBitMap(this->disk, offset, disk->size_chunks()));
+        this->disk_block_map->clear_all();
+        // set the properties on the superblock for the blockmap
+        this->disk_block_map_offset = offset;
+        this->disk_block_map_size_chunks = this->disk_block_map->size_chunks();
+        offset += this->disk_block_map->size_chunks();
+    }
+    
+    // initialize the inode table
+    {   
+        uint64_t inodes_per_chunk = disk->chunk_size() / sizeof(INode);
+        uint64_t inode_count_to_request = (unsigned long)(inode_table_size_rel_to_disk * disk->size_chunks()) * inodes_per_chunk;
+        
+        this->inode_table_inode_count = inode_count_to_request;
+        this->inode_table = std::unique_ptr<INodeTable>(
+            new INodeTable(this, offset, inode_count_to_request));
+        this->inode_table->format_inode_table();
+        this->inode_table_offset = offset;
+        this->inode_table_size_chunks = this->inode_table->size_chunks();
+        offset += this->inode_table->size_chunks();
+    }
 
-    //std::cout << "inode table size in chunks is " << inode_table->size_chunks() << std::endl;
+    // give ourselves an extra margin of 1 chunk
+    offset++;
 
-    //free space
-    data_offset = superblock_size_chunks + disk_block_map->size_chunks() + inode_table->size_chunks();
-
-    //set all metadata chunk bits to `used'
-    for(uint64_t bit_i = 0; bit_i < superblock_size_chunks + disk_block_map_size_chunks + inode_table_size_chunks; ++bit_i) {
+    //set all metadata chunk bits to `used' a la Thomas
+    for(uint64_t bit_i = 0; bit_i < offset; ++bit_i) {
         disk_block_map->set(bit_i);
     }
 
-    //serialize to disk
-    //TODO: support this if needed
-    if(superblock_size_chunks != 1) {
-        throw new FileSystemException("superblock size > 1 chunk not supported!");
-    }
-    auto sb_chunk = disk->get_chunk(0);
-    Byte* sb_data = sb_chunk->data.get();
-    int offset = 0;
-    *(uint64_t *)(sb_data+offset) = superblock_size_chunks;
-    offset += sizeof(uint64_t);
-    *(uint64_t *)(sb_data+offset) = disk_size_bytes;
-    offset += sizeof(uint64_t);
-    *(uint64_t *)(sb_data+offset) = disk_size_chunks;
-    offset += sizeof(uint64_t);
-    *(uint64_t *)(sb_data+offset) = disk_chunk_size;
-    offset += sizeof(uint64_t);
-    *(uint64_t *)(sb_data+offset) = disk_block_map_offset;
-    offset += sizeof(uint64_t);
-    *(uint64_t *)(sb_data+offset) = disk_block_map_size_chunks;
-    offset += sizeof(uint64_t);
-    *(uint64_t *)(sb_data+offset) = inode_table_offset;
-    offset += sizeof(uint64_t);
-    *(uint64_t *)(sb_data+offset) = inode_table_size_chunks;
-    offset += sizeof(uint64_t);
-    *(uint64_t *)(sb_data+offset) = data_offset;
-    disk->flush_chunk(*sb_chunk);
+    this->data_offset = offset;
 
+    //serialize to disk
     {
         auto sb_chunk = disk->get_chunk(0);
         Byte* sb_data = sb_chunk->data.get();
-        int offset = 0;
-        //std::cout << "END OF INIT: " << *(uint64_t *)(sb_data+offset) << std::endl;
+        uint64_t offset = 0;
+        *(uint64_t *)(sb_data+offset) = superblock_size_chunks;
+        offset += sizeof(uint64_t);
+        *(uint64_t *)(sb_data+offset) = disk_size_bytes;
+        offset += sizeof(uint64_t);
+        *(uint64_t *)(sb_data+offset) = disk_size_chunks;
+        offset += sizeof(uint64_t);
+        *(uint64_t *)(sb_data+offset) = disk_chunk_size;
+        offset += sizeof(uint64_t);
+        *(uint64_t *)(sb_data+offset) = disk_block_map_offset;
+        offset += sizeof(uint64_t);
+        *(uint64_t *)(sb_data+offset) = disk_block_map_size_chunks;
+        offset += sizeof(uint64_t);
+        *(uint64_t *)(sb_data+offset) = inode_table_offset;
+        offset += sizeof(uint64_t);
+        *(uint64_t *)(sb_data+offset) = inode_table_size_chunks;
+        offset += sizeof(uint64_t);
+        *(uint64_t *)(sb_data+offset) = inode_table_inode_count;
+        offset += sizeof(uint64_t);
+        *(uint64_t *)(sb_data+offset) = data_offset;
+        disk->flush_chunk(*sb_chunk);
+        {
+            auto sb_chunk = disk->get_chunk(0);
+            Byte* sb_data = sb_chunk->data.get();
+            int offset = 0;
+            //std::cout << "END OF INIT: " << *(uint64_t *)(sb_data+offset) << std::endl;
+        }
     }
 }
 
 void SuperBlock::load_from_disk(Disk * disk) {
-    //std::cout << "ENTERING LOAD_FROM_DISK" << std::endl;
+    // //std::cout << "ENTERING LOAD_FROM_DISK" << std::endl;
     auto sb_chunk = disk->get_chunk(0);
     auto sb_data = sb_chunk->data.get();
-    int offset = 0;
+    uint64_t offset = 0;
     //superblock_size_chunks = *(uint64_t *)(sb_data + offset);
     //TODO: throw an error code that filesystem was corrupted instead /////////////////////////////////////////////
     if(superblock_size_chunks != *(uint64_t *)(sb_data + offset)) {
@@ -439,29 +441,68 @@ void SuperBlock::load_from_disk(Disk * disk) {
     //disk_chunk_size = *(uint64_t *)(sb_data+offset);
     if(disk_chunk_size != *(uint64_t *)(sb_data + offset)) {
       throw new FileSystemException("Stored disk chunk size corrupted!");
-    }    
+    }
     offset += sizeof(uint64_t);
-    disk_block_map_offset = *(uint64_t *)(sb_data+offset);
-    //std::cout << "\tdisk block map offset = " << disk_block_map_offset << std::endl;
+    uint64_t disk_block_map_offset = *(uint64_t *)(sb_data+offset);
     offset += sizeof(uint64_t);
-    disk_block_map_size_chunks = *(uint64_t *)(sb_data+offset);
-    //std::cout << "\tdisk block map size in chunks = " << disk_block_map_size_chunks << std::endl;
+    uint64_t disk_block_map_size_chunks = *(uint64_t *)(sb_data+offset);
     offset += sizeof(uint64_t);
-    inode_table_offset = *(uint64_t *)(sb_data+offset);
-    //std::cout << "\tinode table offset = " << inode_table_offset << std::endl;
+    uint64_t inode_table_offset = *(uint64_t *)(sb_data+offset);
     offset += sizeof(uint64_t);
-    inode_table_size_chunks = *(uint64_t *)(sb_data+offset);
-    //std::cout << "\tinode table size in chunks = " << inode_table_size_chunks << std::endl;
+    uint64_t inode_table_size_chunks = *(uint64_t *)(sb_data+offset);
+    offset += sizeof(uint64_t);
+    uint64_t inode_table_inode_count = *(uint64_t *)(sb_data+offset);
     offset += sizeof(uint64_t);
     data_offset = *(uint64_t *)(sb_data+offset);
-    //std::cout << "\tdata offset = " << data_offset << std::endl;
+
+    offset = this->superblock_size_chunks;
+
+    // initialize the disk block map
+    {
+        this->disk_block_map = std::unique_ptr<DiskBitMap>(
+            new DiskBitMap(this->disk, offset, disk->size_chunks()));
+        // this->disk_block_map->clear_all();
+        // set the properties on the superblock for the blockmap
+        this->disk_block_map_offset = offset;
+        this->disk_block_map_size_chunks = this->disk_block_map->size_chunks();
+        offset += this->disk_block_map->size_chunks();
+
+        if (this->disk_block_map_offset != disk_block_map_offset || 
+            this->disk_block_map_size_chunks != disk_block_map_size_chunks) {
+            throw FileSystemException("The disk blockmap became corrupted when attempting to load it");
+        }
+    }
     
-    //std::cout << "disk size chunks = " << disk_size_chunks << std::endl;
+    // initialize the inode table
+    {   
+        uint64_t inode_count_to_request = inode_table_inode_count;
 
-    disk_block_map = std::unique_ptr<DiskBitMap>(new DiskBitMap(disk, disk_block_map_offset, disk_size_chunks));
-    inode_table = std::unique_ptr<INodeTable>(new INodeTable(this, inode_table_offset, inode_table_size_chunks));
+        this->inode_table = std::unique_ptr<INodeTable>(
+            new INodeTable(this, offset, inode_count_to_request));
+        // this->inode_table->format_inode_table();
+        this->inode_table_offset = offset;
+        this->inode_table_size_chunks = this->inode_table->size_chunks();
+        offset += this->inode_table->size_chunks();
 
-    //std::cout << "EXITING LOAD_FROM_DISK" << std::endl;
+        if (this->inode_table_offset != inode_table_offset || 
+            this->inode_table_size_chunks != inode_table_size_chunks) {
+            throw FileSystemException("The inode table became corrupted when attempting to load it");
+        }
+    }
+
+    this->data_offset = offset;
+
+    // finally, these two values should add up
+    if (this->data_offset != data_offset) {
+        throw FileSystemException("found the wrong final data offset after loading the inode table. Something went wrong.");
+    }
+
+    // also check that the disk bit map marks every chunk up to the data offset as in use
+    for(uint64_t bit_i = 0; bit_i < offset; ++bit_i) {
+        if (!disk_block_map->get(bit_i)) {
+            throw FileSystemException("disk bit map should hold every bit in superblock marked as 'in use' why is this not the case?");
+        }
+    }
 }
 
 void FileSystem::printForDebug() {

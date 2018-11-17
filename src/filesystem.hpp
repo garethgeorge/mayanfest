@@ -33,6 +33,7 @@ struct SuperBlock {
   uint64_t disk_block_map_size_chunks; // number of chunks in disk block map
   std::unique_ptr<DiskBitMap> disk_block_map;
   
+  uint64_t inode_table_inode_count; // number of inodes in the inode_table
   uint64_t inode_table_offset; // chunk in which the inode table starts
   uint64_t inode_table_size_chunks; // number of chunks in the inode table
   std::unique_ptr<INodeTable> inode_table;
@@ -85,7 +86,7 @@ struct INodeTable {
 	// struct INode ilist[10]; //TODO: change the size
 
 	// size and offset are in chunks
-	INodeTable(SuperBlock *superblock, uint64_t offset_chunks, uint64_t size_chunks);
+	INodeTable(SuperBlock *superblock, uint64_t offset_chunks, uint64_t inode_count);
 
 	void format_inode_table();
 
@@ -184,17 +185,21 @@ public:
 		uint64_t read_from_disk(size_t offset) {
 			this->offset = offset;
 
+			std::cout << "READ INODE: offset = " << offset << std::endl;
+
 			this->inode->read(offset, (char *)(&(this->data)), sizeof(DirEntryData));
 			offset += sizeof(DirEntryData);
 			
 			if (this->filename != nullptr) {
 				free(this->filename);
 			}
-
+			fprintf(stdout, "\treading filename from disk of length %d at position %d\n", this->data.filename_length, offset);
 			this->filename = (char *)malloc(this->data.filename_length + 1);
 			std::memset(this->filename, 0, this->data.filename_length + 1);
 			this->inode->read(offset, this->filename, data.filename_length);
-			offset += data.filename_length;
+			offset += this->data.filename_length;
+
+			fprintf(stdout, "\t\tread filename: %s\n", this->filename);
 
 			return offset;
 		}
@@ -202,11 +207,18 @@ public:
 		// only pass filename if you want to update it
 		uint64_t write_to_disk(size_t offset, const char *filename) {
 			this->offset = offset;
-
+			std::cout << "WROTE INODE: offset = " << offset << std::endl;
+			if (this->filename)
+				std::cout << "\tFILE NAME: " << this->filename << std::endl;
+			std::cout << "\tFILE NAME LENGTH: " << this->data.filename_length << std::endl;
+			std::cout << "\tNEXT ENTRY PTR: " << this->data.next_entry_ptr << std::endl;
+			std::cout << "\tINODE IDX: " << this->data.inode_idx << std::endl;
 			this->inode->write(offset, (char *)(&(this->data)), sizeof(DirEntryData));
 			offset += sizeof(DirEntryData);
 			
 			if (filename != nullptr) {
+				std::cout << "\tWROTE OUT FILENAME AT OFFSET: " << offset << " LENGTH: " << data.filename_length << std::endl;
+				assert(data.filename_length != 0);
 				assert(data.filename_length == strlen(filename));
 				this->inode->write(offset, filename, data.filename_length);
 			}
@@ -241,6 +253,7 @@ public:
 			entry->data.filename_length = strlen(filename);
 			entry->data.inode_idx = child.inode_table_idx;
 			entry->filename = strdup(filename);
+			
 			// returns the offset after the write of the entry
 			size_t next_offset = entry->write_to_disk(sizeof(DirHeader), entry->filename);
 			header.dir_entries_head = sizeof(DirHeader);
@@ -261,7 +274,7 @@ public:
 			new_entry->data.filename_length = strlen(filename);
 			new_entry->data.inode_idx = child.inode_table_idx;
 			new_entry->filename = strdup(filename);
-			next_offset = new_entry->write_to_disk(next_offset, new_entry->filename);
+			new_entry->write_to_disk(next_offset, new_entry->filename);
 
 			header.dir_entries_tail = next_offset;
 			header.record_count++;
@@ -312,7 +325,7 @@ public:
 				}
 				
 				header.deleted_record_count++;
-				header.record_count++;
+				header.record_count--;
 				return std::move(entry);
 			}
 			last_entry = std::move(entry);
@@ -335,117 +348,11 @@ public:
 			next->read_from_disk(entry->data.next_entry_ptr);
 		}
 
+		fprintf(stdout, "\tfound entry at offset: %d -> %s -> next_entry_ptr %d\n", next->offset, next->filename, next->data.next_entry_ptr);
+		
 		return next;
 	}
 };
 
-
-// struct IDirectory {
-// 	static constexpr uint64_t MAX_SEGMENT_LENGTH = 256;
-
-// 	struct FileNotFoundException : public std::exception { };
-
-// 	INode inode;
-
-// 	// NOTE: starts uninitialized
-// 	struct IDirEntry {
-// 		IDirectory *directory;
-
-// 		IDirEntry(IDirectory *directory) : directory(directory) {
-// 		}
-		
-// 		size_t next_offset = 0; // holds the offset for the next idirentry
-// 		size_t offset = 0; // holds the offset for the current value of the IDirEntry
-// 		char filename[MAX_SEGMENT_LENGTH + 1]; 
-// 		int64_t inode_idx = -1;
-
-// 		bool is_valid() {
-// 			return inode_idx != -1;
-// 		}
-
-// 		bool have_next() {
-// 			return next_offset < this->directory->inode->data.file_size;
-// 		}
-
-// 		void get_next() {
-// 			auto &inode = this->directory->inode;
-
-// 			// std::memset(entry->filename, 0, sizeof(IDirEntry().filename));
-// 			this->filename[MAX_SEGMENT_LENGTH] = 0;
-			
-// 			size_t read_chars = inode.read(next_offset, this->filename, MAX_SEGMENT_LENGTH);
-// 			if (read_chars != MAX_SEGMENT_LENGTH) {
-// 				throw FileSystemException("failed to read directory entry, this should NEVER happen");
-// 			}
-
-// 			if (inode.read(next_offset + MAX_SEGMENT_LENGTH, (char *)(&(this->inode_idx)), sizeof(uint64_t)) != sizeof(uint64_t)) {
-// 				throw FileSystemException("failed to read directory entry, this should NEVER happen");
-// 			}
-
-// 			offset = next_offset; 
-// 			next_offset += MAX_SEGMENT_LENGTH + sizeof(uint64_t);
-// 		}
-// 	};
-
-// 	IDirectory(const INode &inode) : inode(inode) {
-// 	};
-
-// 	void add_file(const char *filename, const INode& child) {
-// 		// TODO: do a sequential scan of the directory looking for a slot to place the new entry in
-// 		size_t write_position = inode.data.file_size;
-
-// 		IDirEntry entry = IDirEntry(this);
-// 		while (entry.have_next()) {
-// 			entry.get_next();
-// 			if (entry.filename[0] == 0) {
-// 				write_position = entry.offset; 
-// 				break ;
-// 			}
-// 		}
-
-// 		char filename_buf[MAX_SEGMENT_LENGTH];
-// 		strncpy(filename_buf, filename, MAX_SEGMENT_LENGTH);
-// 		// write out the path name for the child
-// 		inode.write(write_position, filename_buf, MAX_SEGMENT_LENGTH);
-// 		// write out the inode_idx for the child
-// 		int64_t inode_idx = child.inode_table_idx;
-// 		inode.write(write_position + MAX_SEGMENT_LENGTH, (char *)(&inode_idx), sizeof(int64_t));
-// 	}
-
-// 	IDirEntry find_file(const char *filename) {
-// 		IDirEntry entry = IDirEntry(this);
-// 		while (entry.have_next()) {
-// 			entry.get_next();
-
-// 			if (strcmp(entry.filename, filename) == 0) {
-// 				return entry;
-// 			}
-// 		}
-
-// 		// return the 'invalid directory entry'
-// 		return IDirEntry(this);
-// 	}
-
-// 	void remove_file(const char *filename) {
-// 		IDirEntry entry = IDirEntry(this);
-
-// 		char zerobuf[MAX_SEGMENT_LENGTH + sizeof(uint64_t)];
-// 		std::memset(zerobuf, 0, sizeof(zerobuf));
-
-// 		while (entry.have_next()) {
-// 			entry.get_next();
-
-// 			if (strcmp(entry.filename, filename) == 0) {
-// 				// entirely overwrite the current entry
-// 				inode.write(entry.offset, zerobuf, sizeof(zerobuf));
-				
-// 				return ;
-// 			}
-// 		}
-
-// 		// return the 'invalid directory entry'
-// 		throw FileNotFoundException();
-// 	}
-// };
 
 #endif
