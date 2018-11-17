@@ -386,6 +386,7 @@ void SuperBlock::init(double inode_table_size_rel_to_disk) {
     //setup root directory
     INode inode = this->inode_table->alloc_inode();
     IDirectory root_dir(inode);
+    root_dir.initializeEmpty();
     root_dir.add_file(".", inode);
     root_dir.add_file("..", inode);
     this->inode_table->set_inode(inode.inode_table_idx, inode);

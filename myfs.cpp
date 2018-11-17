@@ -16,6 +16,8 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <mutex>
+#include <limits.h>
+#include <memory>
 
 #include "filesystem.hpp"
 
@@ -23,6 +25,42 @@ std::mutex lock_g;
 std::unique_ptr<Disk> disk = nullptr;
 std::unique_ptr<FileSystem> fs = nullptr;
 SuperBlock *superblock = nullptr;
+
+
+bool resolve_path(const char *path, INode &inode) {
+	inode = superblock->inode_table->get_inode(superblock->root_inode_index);
+
+	assert(path[0] == '/');
+	path += 1; // skip the / at the beginning 
+	char path_segment[PATH_MAX]; // big buffer to hold segments of the path
+
+	const char *seg_end = nullptr;
+	while (seg_end = strstr(path, "/")) {
+		if (inode.get_type() != S_IFDIR) {
+			return false; // failed to resolve the path: todo do we need to make a distinction between did not exist and access denied?
+		}
+
+		strncpy(path_segment, path, seg_end - path - 1);
+
+		IDirectory dir(inode); // load the directory for the inode
+		std::unique_ptr<IDirectory::DirEntry> entry = dir.get_file(path_segment);
+		if (entry == nullptr) {
+			return false;
+		}
+
+		// TODO: check permissions on the directory here
+
+		inode = superblock->inode_table->get_inode(entry->data.inode_idx);
+		path = seg_end + 1;
+	}
+
+	IDirectory dir(inode);
+	std::unique_ptr<IDirectory::DirEntry> entry = dir.get_file(path);
+	if (entry == nullptr)
+		return false;
+
+	return true;
+}
 
 static int myfs_getattr(const char *path, struct stat *stbuf)
 {
@@ -50,6 +88,8 @@ static int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 {
 	std::lock_guard<std::mutex> g(lock_g);
 
+	fprintf(stdout, "myfs_readdir(%s, ...)", path);
+
 	if(strcmp(path, "/") == 0){
 		INode dir_inode = superblock->inode_table->get_inode(superblock->root_inode_index);
 		IDirectory dir(dir_inode);
@@ -60,16 +100,6 @@ static int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 	}else{
 		return -ENOENT;
 	}
-
-	//(void) offset;
-	//(void) fi;
-
-	//if (strcmp(path, "/") != 0)
-	//	return -ENOENT;
-
-	//filler(buf, ".", NULL, 0);
-	//filler(buf, "..", NULL, 0);
-	//filler(buf, myfs_path + 1, NULL, 0);
 
 	return 0;
 }
