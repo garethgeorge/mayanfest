@@ -138,6 +138,7 @@ struct INode {
 	// TODO: possibly be smart about this
 	uint64_t read(uint64_t starting_offset, char *buf, uint64_t n);
 	uint64_t write(uint64_t starting_offset, const char *buf, uint64_t n);
+	void release_chunks(); // use this before removing an inode from the inode table
 
 	std::string to_string();
 };
@@ -182,176 +183,25 @@ public:
 		}
 
 		// returns the size of the thing it read
-		uint64_t read_from_disk(size_t offset) {
-			this->offset = offset;
-
-			std::cout << "READ INODE: offset = " << offset << std::endl;
-
-			this->inode->read(offset, (char *)(&(this->data)), sizeof(DirEntryData));
-			offset += sizeof(DirEntryData);
-			
-			if (this->filename != nullptr) {
-				free(this->filename);
-			}
-			fprintf(stdout, "\treading filename from disk of length %d at position %d\n", this->data.filename_length, offset);
-			this->filename = (char *)malloc(this->data.filename_length + 1);
-			std::memset(this->filename, 0, this->data.filename_length + 1);
-			this->inode->read(offset, this->filename, data.filename_length);
-			offset += this->data.filename_length;
-
-			fprintf(stdout, "\t\tread filename: %s\n", this->filename);
-
-			return offset;
-		}
+		uint64_t read_from_disk(size_t offset);
 
 		// only pass filename if you want to update it
-		uint64_t write_to_disk(size_t offset, const char *filename) {
-			this->offset = offset;
-			std::cout << "WROTE INODE: offset = " << offset << std::endl;
-			if (this->filename)
-				std::cout << "\tFILE NAME: " << this->filename << std::endl;
-			std::cout << "\tFILE NAME LENGTH: " << this->data.filename_length << std::endl;
-			std::cout << "\tNEXT ENTRY PTR: " << this->data.next_entry_ptr << std::endl;
-			std::cout << "\tINODE IDX: " << this->data.inode_idx << std::endl;
-			this->inode->write(offset, (char *)(&(this->data)), sizeof(DirEntryData));
-			offset += sizeof(DirEntryData);
-			
-			if (filename != nullptr) {
-				std::cout << "\tWROTE OUT FILENAME AT OFFSET: " << offset << " LENGTH: " << data.filename_length << std::endl;
-				assert(data.filename_length != 0);
-				assert(data.filename_length == strlen(filename));
-				this->inode->write(offset, filename, data.filename_length);
-			}
-
-			offset += data.filename_length;
-
-			return offset;
-		}
+		uint64_t write_to_disk(size_t offset, const char *filename);
 	};
 
-	IDirectory(INode &inode) : inode(&inode) {
-		this->inode->read(0, (char *)&header, sizeof(DirHeader));
-	}
+	IDirectory(INode &inode);
 
-	void flush() { // flush your changes 
-		inode->write(0, (char *)&header, sizeof(DirHeader));
-	}
+	void flush();
 
-	void initializeEmpty() {
-		header = DirHeader();
-		inode->write(0, (char *)&header, sizeof(DirHeader));
-	}
+	void initializeEmpty();
 
-	std::unique_ptr<DirEntry> add_file(const char *filename, const INode &child) {
-		if (this->get_file(filename) != nullptr) {
-			return nullptr;
-		}
+	std::unique_ptr<DirEntry> add_file(const char *filename, const INode &child);
 
-		if (header.dir_entries_head == 0) {
-			// then it is the first and only element in the linked list!
-			std::unique_ptr<DirEntry> entry(new DirEntry(this->inode));
-			entry->data.filename_length = strlen(filename);
-			entry->data.inode_idx = child.inode_table_idx;
-			entry->filename = strdup(filename);
-			
-			// returns the offset after the write of the entry
-			size_t next_offset = entry->write_to_disk(sizeof(DirHeader), entry->filename);
-			header.dir_entries_head = sizeof(DirHeader);
-			header.dir_entries_tail = sizeof(DirHeader);
-			header.record_count++;
-			// finally, flush ourselves to the disk
-			
-			this->flush();
-			return std::move(entry);
-		} else {
+	std::unique_ptr<DirEntry> get_file(const char *filename);
 
-			DirEntry last_entry(this->inode);
-			size_t next_offset = last_entry.read_from_disk(header.dir_entries_tail);
-			last_entry.data.next_entry_ptr = next_offset;
-			last_entry.write_to_disk(header.dir_entries_tail, nullptr);
+	std::unique_ptr<DirEntry> remove_file(const char *filename);
 
-			std::unique_ptr<DirEntry> new_entry(new DirEntry(this->inode));
-			new_entry->data.filename_length = strlen(filename);
-			new_entry->data.inode_idx = child.inode_table_idx;
-			new_entry->filename = strdup(filename);
-			new_entry->write_to_disk(next_offset, new_entry->filename);
-
-			header.dir_entries_tail = next_offset;
-			header.record_count++;
-
-			this->flush();
-			return std::move(new_entry);
-		}
-	}
-
-	std::unique_ptr<DirEntry> get_file(const char *filename) {
-		std::unique_ptr<DirEntry> entry = nullptr;
-
-		while (entry = this->next_entry(entry)) {
-			if (strcmp(entry->filename, filename) == 0) {
-				return entry;
-			}
-		}
-
-		return nullptr;
-	}
-
-	std::unique_ptr<DirEntry> remove_file(const char *filename) {
-		// TODO: update reference count when removing a file
-
-		std::unique_ptr<DirEntry> last_entry = nullptr;
-		std::unique_ptr<DirEntry> entry = nullptr;
-
-		while (entry = this->next_entry(entry)) {
-			if (strcmp(entry->filename, filename) == 0) {
-				std::cout << "REMOVING A FILE WITH THE NAME: " << filename << std::endl;
-				if (last_entry == nullptr) {
-					std::cout << "\tLAST ENTRY IS NULL PTR, MOVING HEAD FORWARD TO: " << header.dir_entries_head << std::endl;
-					header.dir_entries_head = entry->data.next_entry_ptr;
-					if (entry->data.next_entry_ptr == 0) {
-						std::cout << "\tNEXT_ENTRY_PTR IS NULL, SETTING TAIL TO 0" << std::endl;
-						header.dir_entries_tail = 0;
-
-						std::cout << "\t\tVALUES OF HEAD AND TAIL ARE " << header.dir_entries_head << ", " << header.dir_entries_tail << std::endl;
-					}
-				} else {
-					std::cout << "LAST ENTRY NOT NULL, UPDATING LAST_ENTRY's NEXT_ENTRY_PTR TO " << entry->data.next_entry_ptr << std::endl;
-					last_entry->data.next_entry_ptr = entry->data.next_entry_ptr;
-					last_entry->write_to_disk(last_entry->offset, nullptr);
-
-					if (last_entry->data.next_entry_ptr == 0) {
-						header.dir_entries_tail = last_entry->offset;
-					}
-				}
-				
-				header.deleted_record_count++;
-				header.record_count--;
-				return std::move(entry);
-			}
-			last_entry = std::move(entry);
-		}
-
-		return nullptr;
-	}
-
-	std::unique_ptr<DirEntry> next_entry(const std::unique_ptr<DirEntry>& entry) {
-		std::unique_ptr<DirEntry> next(new DirEntry(this->inode));
-		if (entry == nullptr) {
-			if (header.record_count == 0)
-				return nullptr;
-
-			next->read_from_disk(this->header.dir_entries_head);
-		} else {
-			if (entry->data.next_entry_ptr == 0) 
-				return nullptr; // reached the end of the linked list
-
-			next->read_from_disk(entry->data.next_entry_ptr);
-		}
-
-		fprintf(stdout, "\tfound entry at offset: %d -> %s -> next_entry_ptr %d\n", next->offset, next->filename, next->data.next_entry_ptr);
-		
-		return next;
-	}
+	std::unique_ptr<DirEntry> next_entry(const std::unique_ptr<DirEntry>& entry);
 };
 
 
