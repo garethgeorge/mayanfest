@@ -18,6 +18,7 @@
 #include <mutex>
 #include <limits.h>
 #include <memory>
+#include <unistd.h>
 
 #include "filesystem.hpp"
 
@@ -66,17 +67,27 @@ static int myfs_getattr(const char *path, struct stat *stbuf)
 {
 	std::lock_guard<std::mutex> g(lock_g);
 	int res = 0;
+	INode inode;
+	mode_t type;
 
-	//memset(stbuf, 0, sizeof(struct stat));
-	if (strcmp(path, "/") == 0) {
-		stbuf->st_mode = S_IFDIR | 0755;
+	memset(stbuf, 0, sizeof(struct stat));
+	if(strcmp(path, "/") == 0){
+		std::cout << path << std::endl;
+		stbuf->st_mode = inode.get_type() | inode.data.permissions;
+		stbuf->st_uid = getuid();
+		stbuf->st_gid = getgid();
+		stbuf->st_ino = inode.inode_table_idx;
+		stbuf->st_size = inode.data.file_size;
 		stbuf->st_nlink = 2;
+	}else if(resolve_path(path, inode)){
+		std::cout << path << std::endl;
+		stbuf->st_mode = inode.get_type() | inode.data.permissions;
+		stbuf->st_uid = getuid();
+		stbuf->st_gid = getgid();
+		stbuf->st_ino = inode.inode_table_idx;
+		stbuf->st_size = inode.data.file_size;
+		stbuf->st_nlink = 1;
 	}else{
-	//} else if (strcmp(path, myfs_path) == 0) {
-	//	stbuf->st_mode = S_IFREG | 0444;
-	//	stbuf->st_nlink = 1;
-	//	stbuf->st_size = strlen(myfs_str);
-	//} else
 		res = -ENOENT;
 	}
 
