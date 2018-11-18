@@ -279,60 +279,75 @@ uint64_t INodeTable::size_chunks() {
     return inode_table_size_chunks;
 }
 
-INode INodeTable::alloc_inode() {
+std::shared_ptr<INode> INodeTable::alloc_inode() {
     std::lock_guard<std::recursive_mutex> g(this->lock);
 
     DiskBitMap::BitRange range = this->used_inodes->find_unset_bits(1);
     if (range.bit_count != 1) {
         throw FileSystemException("INodeTable out of inodes -- no free inode available for allocation");
     }
+    
+    std::shared_ptr<INode> inode(new INode);
+    inode->superblock = this->superblock;
+    inode->inode_table_idx = range.start_idx;
 
-    INode inode;
-    inode.superblock = this->superblock;
-    inode.inode_table_idx = range.start_idx;
-
-    this->set_inode(range.start_idx, inode);
+    this->inodecache.put(inode->inode_table_idx, inode); 
+    used_inodes->set(inode->inode_table_idx);
     
     return inode;
 }
 
-INode INodeTable::get_inode(uint64_t idx) {
+std::shared_ptr<INode> INodeTable::get_inode(uint64_t idx) {
     std::lock_guard<std::recursive_mutex> g(this->lock);
 
     if (idx >= inode_count) 
         throw FileSystemException("INode index out of bounds");
     if (!used_inodes->get(idx)) 
         throw FileSystemException("INode at index is not currently in use. You can't have it.");
+    
+    if (auto inode = this->inodecache.get(idx)) {
+        return inode;
+    }
 
-    INode node;
+    std::shared_ptr<INode> inode(new INode);
     uint64_t chunk_idx = inode_ilist_offset + idx / inodes_per_chunk;
     uint64_t chunk_offset = idx % inodes_per_chunk;
     std::shared_ptr<Chunk> chunk = superblock->disk->get_chunk(chunk_idx);
-    std::memcpy((void *)(&(node.data)), chunk->data.get() + sizeof(INode::INodeData) * chunk_offset, sizeof(INode::INodeData));
-    node.superblock = this->superblock;
-    node.inode_table_idx = idx;
-    return node;
+    std::memcpy((void *)(&(inode->data)), chunk->data.get() + sizeof(INode::INodeData) * chunk_offset, sizeof(INode::INodeData));
+    inode->superblock = this->superblock;
+    inode->inode_table_idx = idx;
+    return inode;
 }
 
-void INodeTable::set_inode(uint64_t idx, INode &node) {
+void INodeTable::update_inode(const INode& inode) {
     std::lock_guard<std::recursive_mutex> g(this->lock);
     
-    if (idx >= inode_count) 
+    if (inode.inode_table_idx >= inode_count) 
         throw FileSystemException("INode index out of bounds");
-    used_inodes->set(idx);
+    if (!used_inodes->get(inode.inode_table_idx)) 
+        throw FileSystemException("INode at index is not currently in use. You can not update it.");
 
-    uint64_t chunk_idx = inode_ilist_offset + idx / inodes_per_chunk;
-    uint64_t chunk_offset = idx % inodes_per_chunk;
+    uint64_t chunk_idx = inode_ilist_offset + inode.inode_table_idx / inodes_per_chunk;
+    uint64_t chunk_offset = inode.inode_table_idx % inodes_per_chunk;
     std::shared_ptr<Chunk> chunk = superblock->disk->get_chunk(chunk_idx);
-    std::memcpy((void *)(chunk->data.get() + sizeof(INode::INodeData) * chunk_offset), (void *)(&(node.data)), sizeof(INode::INodeData));
+    std::memcpy((void *)(chunk->data.get() + sizeof(INode::INodeData) * chunk_offset), (void *)(&(inode.data)), sizeof(INode::INodeData));
 }
 
-void INodeTable::free_inode(uint64_t idx) {
+void INodeTable::free_inode(std::shared_ptr<INode> inode) {
     std::lock_guard<std::recursive_mutex> g(this->lock);
 
-    if (idx >= inode_count) 
+    if (!inode.unique()) {
+        throw FileSystemException("To free an inode you must hand a UNIQUE reference that no other thread currently holds to free_inode");
+        // you may optionally spin until you can acquire a unique reference to the inode in order to remove it
+    }
+
+    if (inode->inode_table_idx >= inode_count) 
         throw FileSystemException("INode index out of bounds");
-    used_inodes->clr(idx);
+    
+    uint64_t index = inode->inode_table_idx;
+    inode = nullptr;
+
+    used_inodes->clr(index);
 }
 
 SuperBlock::SuperBlock(Disk *disk) 
@@ -384,13 +399,13 @@ void SuperBlock::init(double inode_table_size_rel_to_disk) {
     this->data_offset = offset;
 
     //setup root directory
-    INode inode = this->inode_table->alloc_inode();
-    IDirectory root_dir(inode);
+    std::shared_ptr<INode> inode = this->inode_table->alloc_inode();
+    IDirectory root_dir(*inode);
     root_dir.initializeEmpty();
-    root_dir.add_file(".", inode);
-    root_dir.add_file("..", inode);
-    this->inode_table->set_inode(inode.inode_table_idx, inode);
-    this->root_inode_index = inode.inode_table_idx;
+    root_dir.add_file(".", *inode);
+    root_dir.add_file("..", *inode);
+    inode->set_type(S_IFDIR);
+    this->root_inode_index = inode->inode_table_idx;
     //serialize to disk
     {
         auto sb_chunk = disk->get_chunk(0);
@@ -427,7 +442,7 @@ void SuperBlock::init(double inode_table_size_rel_to_disk) {
     }
 }
 
-void SuperBlock::load_from_disk(Disk * disk) {
+void SuperBlock::load_from_disk() {
     // //std::cout << "ENTERING LOAD_FROM_DISK" << std::endl;
     auto sb_chunk = disk->get_chunk(0);
     auto sb_data = sb_chunk->data.get();
@@ -534,38 +549,26 @@ IDirectory::IDirectory(INode &inode) : inode(&inode) {
 uint64_t IDirectory::DirEntry::read_from_disk(size_t offset) {
     this->offset = offset;
 
-    std::cout << "READ INODE: offset = " << offset << std::endl;
-
     this->inode->read(offset, (char *)(&(this->data)), sizeof(DirEntryData));
     offset += sizeof(DirEntryData);
     
     if (this->filename != nullptr) {
         free(this->filename);
     }
-    fprintf(stdout, "\treading filename from disk of length %d at position %d\n", this->data.filename_length, offset);
     this->filename = (char *)malloc(this->data.filename_length + 1);
     std::memset(this->filename, 0, this->data.filename_length + 1);
     this->inode->read(offset, this->filename, data.filename_length);
     offset += this->data.filename_length;
-
-    fprintf(stdout, "\t\tread filename: %s\n", this->filename);
 
     return offset;
 }
 
 uint64_t IDirectory::DirEntry::write_to_disk(size_t offset, const char *filename) {
     this->offset = offset;
-    std::cout << "WROTE INODE: offset = " << offset << std::endl;
-    if (this->filename)
-        std::cout << "\tFILE NAME: " << this->filename << std::endl;
-    std::cout << "\tFILE NAME LENGTH: " << this->data.filename_length << std::endl;
-    std::cout << "\tNEXT ENTRY PTR: " << this->data.next_entry_ptr << std::endl;
-    std::cout << "\tINODE IDX: " << this->data.inode_idx << std::endl;
     this->inode->write(offset, (char *)(&(this->data)), sizeof(DirEntryData));
     offset += sizeof(DirEntryData);
     
     if (filename != nullptr) {
-        std::cout << "\tWROTE OUT FILENAME AT OFFSET: " << offset << " LENGTH: " << data.filename_length << std::endl;
         assert(data.filename_length != 0);
         assert(data.filename_length == strlen(filename));
         this->inode->write(offset, filename, data.filename_length);
@@ -648,18 +651,12 @@ std::unique_ptr<IDirectory::DirEntry> IDirectory::remove_file(const char *filena
 
     while (entry = this->next_entry(entry)) {
         if (strcmp(entry->filename, filename) == 0) {
-            std::cout << "REMOVING A FILE WITH THE NAME: " << filename << std::endl;
             if (last_entry == nullptr) {
-                std::cout << "\tLAST ENTRY IS NULL PTR, MOVING HEAD FORWARD TO: " << header.dir_entries_head << std::endl;
                 header.dir_entries_head = entry->data.next_entry_ptr;
                 if (entry->data.next_entry_ptr == 0) {
-                    std::cout << "\tNEXT_ENTRY_PTR IS NULL, SETTING TAIL TO 0" << std::endl;
                     header.dir_entries_tail = 0;
-
-                    std::cout << "\t\tVALUES OF HEAD AND TAIL ARE " << header.dir_entries_head << ", " << header.dir_entries_tail << std::endl;
                 }
             } else {
-                std::cout << "LAST ENTRY NOT NULL, UPDATING LAST_ENTRY's NEXT_ENTRY_PTR TO " << entry->data.next_entry_ptr << std::endl;
                 last_entry->data.next_entry_ptr = entry->data.next_entry_ptr;
                 last_entry->write_to_disk(last_entry->offset, nullptr);
 
@@ -692,7 +689,5 @@ std::unique_ptr<IDirectory::DirEntry> IDirectory::next_entry(const std::unique_p
         next->read_from_disk(entry->data.next_entry_ptr);
     }
 
-    fprintf(stdout, "\tfound entry at offset: %d -> %s -> next_entry_ptr %d\n", next->offset, next->filename, next->data.next_entry_ptr);
-    
     return next;
 }

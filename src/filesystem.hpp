@@ -45,7 +45,7 @@ struct SuperBlock {
   SuperBlock(Disk *disk);
   
   void init(double inode_table_size_rel_to_disk);
-  void load_from_disk(Disk * disk);
+  void load_from_disk();
   
   std::shared_ptr<Chunk> allocate_chunk() {
     DiskBitMap::BitRange range = this->disk_block_map->find_unset_bits(1);
@@ -99,13 +99,17 @@ struct INodeTable {
 	}
 
 	// TODO: have these calls block when an inode is in use
-	INode alloc_inode();
+	std::shared_ptr<INode> alloc_inode();
 	
-	INode get_inode(uint64_t idx);
+	std::shared_ptr<INode> get_inode(uint64_t idx);
 	
-	void set_inode(uint64_t idx, INode &node);
+	// stores the inode back to the inode table
+	void update_inode(const INode &node); 
 
-	void free_inode(uint64_t idx);
+	// releases the slot used by this inode
+	// needs to actually be a 'unique' shared ptr to the inode 
+	// TODO: figure out a better way to do this
+	void free_inode(std::shared_ptr<INode> node);
 };
 
 struct INode {
@@ -128,13 +132,22 @@ struct INode {
 		uint64_t file_size = 0; //size of file
 		//uint64_t reference_count = 0; //reference count to the inode
 		uint64_t addresses[ADDRESS_COUNT] = {0}; //8 direct
-		uint16_t permissions = 0644; //rwxrwxrwx (ow, g, oth) 
-		uint8_t file_type = FLAG_IF_DIR;
+		uint16_t permissions = 0644;
+		uint8_t file_type = 0;
 	};
 	
+	std::mutex lock;
 	uint64_t inode_table_idx = 0;
 	INodeData data;
 	SuperBlock *superblock = nullptr;	
+
+	~INode() {
+		if (this->superblock != nullptr) {
+			// stores the data for this inode back into the inode table now that it is 
+			// having its destructor called
+			this->superblock->inode_table->update_inode(*this);
+		}
+	}
 
 	std::shared_ptr<Chunk> resolve_indirection(uint64_t chunk_number, bool createIfNotExists);
 
