@@ -363,6 +363,9 @@ void SuperBlock::init(double inode_table_size_rel_to_disk) {
         throw new FileSystemException("Requested size of superblock, inode table, and bitmap will potentially exceed disk size");
     }
 
+    // zero out the disk
+    this->disk->zero_fill();
+
     // initialize the disk block map
     {
         this->disk_block_map = std::unique_ptr<DiskBitMap>(

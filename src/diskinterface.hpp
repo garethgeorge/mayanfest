@@ -8,6 +8,7 @@
 #include <vector>
 #include <array>
 #include <iostream>
+#include <sys/mman.h>
 
 #include <cstring>
 #include <memory>
@@ -91,7 +92,7 @@ private:
 	const Size _size_chunks;
 	const Size _chunk_size;
 
-	std::unique_ptr<Byte[]> data;
+	Byte* data;
 
 	// a mutex which protects access to the disk
 	std::mutex lock;
@@ -104,11 +105,25 @@ private:
 	void sweep_chunk_cache(); 
 public:
 
-	Disk(Size size_chunk_ctr, Size chunk_size_ctr) 
+	// when you just want a disk use 
+	// flags: MAP_PRIVATE | MAP_ANONYMOUS
+	// when you want a disk backed by a file, provide a file descriptor and set 
+	// flags: MAP_FILE | MAP_SHARED
+	// a good explanation of these flags can be found here: https://www.gnu.org/software/hurd/glibc/mmap.html
+	Disk(Size size_chunk_ctr, Size chunk_size_ctr, 
+		int flags = MAP_PRIVATE | MAP_ANONYMOUS, int fd = -1) 
 		: _chunk_size(chunk_size_ctr), _size_chunks(size_chunk_ctr) {
-		// initialize the data for the disk
-		this->data = std::unique_ptr<Byte[]>(new Byte[this->size_bytes()]);
-		std::memset(this->data.get(), 0, this->size_bytes());
+		
+		// initialize data as a memory mapped file
+		this->data = (Byte *)mmap(NULL, this->size_bytes(), PROT_READ | PROT_WRITE, flags, fd, 0);
+		if (data == NULL) {
+			throw DiskException("failed to create the memory mapped file to back the disk");
+		}
+	}
+
+	void zero_fill() {
+		// zero out the memory mapped file
+		std::memset(this->data, 0, this->size_bytes());
 	}
 
 	inline Size size_bytes() const {

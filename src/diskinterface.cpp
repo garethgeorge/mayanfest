@@ -26,7 +26,7 @@ std::shared_ptr<Chunk> Disk::get_chunk(Size chunk_idx) {
 	chunk->size_bytes = this->chunk_size();
 	chunk->chunk_idx = chunk_idx;
 	chunk->data = std::unique_ptr<Byte[]>(new Byte[this->chunk_size()]);
-	std::memcpy(chunk->data.get(), this->data.get() + chunk_idx * this->chunk_size(), 
+	std::memcpy(chunk->data.get(), this->data + chunk_idx * this->chunk_size(), 
 		this->chunk_size());
 
 	// store it into the chunk cache so that it can be shared if requested again
@@ -40,7 +40,7 @@ void Disk::flush_chunk(const Chunk& chunk) {
 	assert(chunk.size_bytes == this->chunk_size());
 	assert(chunk.parent == this);
 
-	std::memcpy(this->data.get() + chunk.chunk_idx * this->chunk_size(), 
+	std::memcpy(this->data + chunk.chunk_idx * this->chunk_size(), 
 		chunk.data.get(), this->chunk_size());
 }
 
@@ -53,7 +53,9 @@ void Disk::try_close() {
 }
 
 Disk::~Disk() {
-	
+	if (this->data != NULL) {
+		munmap(this->data, this->size_bytes());
+	}
 }
 
 

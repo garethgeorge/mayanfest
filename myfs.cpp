@@ -110,7 +110,8 @@ static int myfs_getattr(const char *path, struct stat *stbuf)
 		memset(stbuf, 0, sizeof(struct stat));
 		inode = resolve_path(path);
 		std::cout << path << std::endl;
-		stbuf->st_mode = inode->get_type() | inode->data.permissions;
+		// stbuf->st_mode = inode->get_type() | inode->data.permissions;
+		stbuf->st_mode = inode->get_type() | 0777;
 		stbuf->st_uid = getuid();
 		stbuf->st_gid = getgid();
 		stbuf->st_ino = inode->inode_table_idx;
@@ -215,11 +216,11 @@ static int myfs_mknod(const char *path, mode_t mode, dev_t rdev) {
 			// the file already exists in this location :P 
 			throw UnixError(EEXIST);
 		}
-
 	} catch (const UnixError &e) {
 		// if an error occurs we must free the inode we were in the process of 
 		// creating or the inode will leak and never be released b/c it is not
 		// referenced in the directory hierarchy
+		fprintf(stdout, "ENCOUNTERED A UNIX ERROR, FAILING\n");
 		superblock->inode_table->free_inode(std::move(new_inode));
 		return -e.errorcode;
 	}
