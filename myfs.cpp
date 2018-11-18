@@ -18,6 +18,7 @@
 #include <mutex>
 #include <limits.h>
 #include <memory>
+#include <libgen.h>
 
 #include "filesystem.hpp"
 
@@ -150,6 +151,77 @@ static int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 	return 0;
 }
 
+static int myfs_mknod(const char *path, mode_t mode, dev_t rdev) {
+	// this is the example I found for this method: 
+	// https://github.com/osxfuse/fuse/blob/master/example/fusexmp.c
+	// http://man7.org/linux/man-pages/man2/mknod.2.html 
+	
+	struct fuse_context *ctx = fuse_get_context();
+
+	// copy the path and pass it to dirname which strips off the end segment
+	std::unique_ptr<char[]> path_cpy1(strdup(path));
+	std::unique_ptr<char[]> path_cpy2(strdup(path));
+	const char *name = basename(path_cpy1.get());
+	const char *dir = dirname(path_cpy2.get());
+
+	// allocate the new inode
+	std::shared_ptr<INode> new_inode = nullptr;
+	try {
+		new_inode = superblock->inode_table->alloc_inode();	
+	} catch (const FileSystemException &e) {
+		// the disk is out of room, can not allocate any more inodes
+		return -EDQUOT;
+	}
+	 
+	try {
+		std::shared_ptr<INode> dir_inode = resolve_path(dir);
+
+		fprintf(stdout, "mkfs_mknod(%s, %d, ...)\n", path, mode);
+		fprintf(stdout, "\tplacing node in directory: %s file name: %s\n", dir, name);
+		if (!can_write_inode(ctx, *dir_inode)) {
+			throw UnixError(EACCES);
+		}
+
+		// NOTE: the proper way to set the permissions are mode & ~umask
+		// not sure why this is the case, but the man page says so
+		fprintf(stdout, "\tfile owner: %d\n", ctx->uid);
+		fprintf(stdout, "\tfile group: %d\n", ctx->gid);
+		new_inode->data.UID = ctx->uid;
+		new_inode->data.GID = ctx->gid;
+		new_inode->data.permissions = (S_IRWXU | S_IRWXG | S_IRWXO) & mode;
+		new_inode->data.permissions &= ~(ctx->umask);
+		fprintf(stdout, "\tfile permissions: %d\n", new_inode->data.permissions);
+
+		// set the mode correctly
+		if (S_ISDIR(mode)) {
+			// properly initialize the empty directory
+			new_inode->set_type(S_IFDIR);
+			IDirectory dir(*new_inode);
+			dir.initializeEmpty();
+		} else if (S_ISREG(mode)) {
+			new_inode->set_type(S_IFREG);
+		} else {
+			throw UnixError(EPERM);
+		}
+
+		// the file already exists in this directory
+		IDirectory dir(*dir_inode);
+		if (dir.add_file(name, *new_inode) == nullptr) {
+			// the file already exists in this location :P 
+			throw UnixError(EEXIST);
+		}
+
+	} catch (const UnixError &e) {
+		// if an error occurs we must free the inode we were in the process of 
+		// creating or the inode will leak and never be released b/c it is not
+		// referenced in the directory hierarchy
+		superblock->inode_table->free_inode(std::move(new_inode));
+		return -e.errorcode;
+	}
+	
+	return 0;
+}
+
 static int myfs_open(const char *path, struct fuse_file_info *fi)
 {
 	std::lock_guard<std::mutex> g(lock_g);
@@ -201,6 +273,7 @@ int main(int argc, char *argv[])
 	myfs_oper.readdir = myfs_readdir;
 	myfs_oper.open = myfs_open;
 	myfs_oper.read = myfs_read;
+	myfs_oper.mknod = myfs_mknod;
 
 
 	return fuse_main(argc, argv, &myfs_oper, NULL);
