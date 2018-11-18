@@ -132,8 +132,8 @@ struct INode {
 		uint64_t file_size = 0; //size of file
 		//uint64_t reference_count = 0; //reference count to the inode
 		uint64_t addresses[ADDRESS_COUNT] = {0}; //8 direct
-		uint16_t permissions; //rwxrwxrwx (ow, g, oth) 
-		uint8_t file_type;
+		uint16_t permissions = 0644;
+		uint8_t file_type = 0;
 	};
 	
 	std::mutex lock;

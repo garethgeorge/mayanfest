@@ -27,8 +27,40 @@ std::unique_ptr<FileSystem> fs = nullptr;
 SuperBlock *superblock = nullptr;
 
 
+struct UnixError : public std::exception {
+	const int errorcode;
+	UnixError(int errorcode) : errorcode(errorcode) { };
+};
+
+bool can_read_inode(struct fuse_context *ctx, INode& inode) {
+	return 
+		S_IROTH & inode.data.permissions || // anone can read
+		((inode.data.UID == ctx->uid) && (S_IRUSR & inode.data.permissions)) || // owner can read
+		((inode.data.GID == ctx->gid) && (S_IRGRP & inode.data.permissions)); // group can read
+}
+
+bool can_write_inode(struct fuse_context *ctx, INode& inode) {
+	return 
+		S_IWOTH & inode.data.permissions || // anyone can write
+		((inode.data.UID == ctx->uid) && (S_IWUSR & inode.data.permissions)) || // owner can write
+		((inode.data.GID == ctx->gid) && (S_IWGRP & inode.data.permissions)); // group can write
+}
+
+bool can_exec_inode(struct fuse_context *ctx, INode& inode) {
+	return 
+		S_IXOTH & inode.data.permissions || // anyone can exec
+		((inode.data.UID == ctx->uid) && (S_IXUSR & inode.data.permissions)) || // owner can exec
+		((inode.data.GID == ctx->gid) && (S_IXGRP & inode.data.permissions)); // group can exec
+}
+
 std::shared_ptr<INode> resolve_path(const char *path) {
+	struct fuse_context *ctx = fuse_get_context();
 	std::shared_ptr<INode> inode = superblock->inode_table->get_inode(superblock->root_inode_index);
+
+	if (strcmp(path, "/") == 0) {
+		// special case to handle root dir
+		return inode;
+	}
 
 	assert(path[0] == '/');
 	path += 1; // skip the / at the beginning 
@@ -37,7 +69,7 @@ std::shared_ptr<INode> resolve_path(const char *path) {
 	const char *seg_end = nullptr;
 	while (seg_end = strstr(path, "/")) {
 		if (inode->get_type() != S_IFDIR) {
-			return nullptr; // failed to resolve the path: todo do we need to make a distinction between did not exist and access denied?
+			throw UnixError(ENOTDIR);
 		}
 
 		strncpy(path_segment, path, seg_end - path - 1);
@@ -45,19 +77,22 @@ std::shared_ptr<INode> resolve_path(const char *path) {
 		IDirectory dir(*inode); // load the directory for the inode
 		std::unique_ptr<IDirectory::DirEntry> entry = dir.get_file(path_segment);
 		if (entry == nullptr) {
-			return nullptr;
+			throw UnixError(ENOENT);
 		}
 
-		// TODO: check permissions on the directory here
-
 		inode = superblock->inode_table->get_inode(entry->data.inode_idx);
+		if (!can_read_inode(ctx, *inode)) {
+			// this code might as well check that we have access to the path
+			fprintf(stdout, "resolve_path found that access is denied to this directory\n");
+			throw UnixError(EACCES);
+		}
 		path = seg_end + 1;
 	}
 
 	IDirectory dir(*inode);
 	std::unique_ptr<IDirectory::DirEntry> entry = dir.get_file(path);
 	if (entry == nullptr)
-		return nullptr;
+		throw UnixError(ENOENT);
 
 	return superblock->inode_table->get_inode(entry->data.inode_idx);
 }
@@ -87,18 +122,29 @@ static int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 			 off_t offset, struct fuse_file_info *fi)
 {
 	std::lock_guard<std::mutex> g(lock_g);
-
 	fprintf(stdout, "myfs_readdir(%s, ...)", path);
 
-	if(strcmp(path, "/") == 0){
-		std::shared_ptr<INode> dir_inode = superblock->inode_table->get_inode(superblock->root_inode_index);
+	try {
+		struct fuse_context *ctx = fuse_get_context();
+		fprintf(stdout, "\tuid: %d gid: %d pid: %d trying to readdir %s\n", 
+			ctx->uid, ctx->gid, ctx->pid, path);
+		// fprintf(stdout, "\t\tumask: %d\n", ctx->umask);
+
+		std::shared_ptr<INode> dir_inode = resolve_path(path);
+		if (!can_read_inode(ctx, *dir_inode)) {
+			// NOTE: I think this should be handled elsewhere, but that is okay
+			throw UnixError(EACCES);
+		}
+
 		IDirectory dir(*dir_inode);
 		std::unique_ptr<IDirectory::DirEntry> entry = nullptr;
-		while(entry = dir.next_entry(entry)){
-			filler(buf, entry->filename, NULL, 0);
+		while(entry = dir.next_entry(entry)) {
+			if (filler(buf, entry->filename, NULL, 0) != 0)
+				return -ENOMEM;
 		}
-	}else{
-		return -ENOENT;
+
+	} catch (const UnixError& e) {
+		return -e.errorcode;
 	}
 
 	return 0;
