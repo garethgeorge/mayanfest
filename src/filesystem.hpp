@@ -128,6 +128,7 @@ struct INode {
 		// from data structures that INode needs to keep when loaded in memory
 		uint64_t UID = 0; // user id
 		uint64_t GID = 0; // group id
+		uint64_t last_accessed = 0;
 		uint64_t last_modified = 0; //last modified timestamp
 		uint64_t file_size = 0; //size of file
 		//uint64_t reference_count = 0; //reference count to the inode

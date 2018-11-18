@@ -1,4 +1,6 @@
 /*
+  see this for documentation on the methods https://www.cs.hmc.edu/~geoff/classes/hmc.cs135.201109/homework/fuse/fuse_doc.html
+  
   FUSE: Filesystem in Userspace
   Copyright (C) 2001-2007  Miklos Szeredi <miklos@szeredi.hu>
 
@@ -20,6 +22,7 @@
 #include <memory>
 #include <unistd.h>
 #include <libgen.h>
+#include <math.h>
 
 #include "filesystem.hpp"
 
@@ -28,6 +31,11 @@ std::unique_ptr<Disk> disk = nullptr;
 std::unique_ptr<FileSystem> fs = nullptr;
 SuperBlock *superblock = nullptr;
 
+/*
+	TODO: figure out why permissions are so incredibly broken right now 
+	
+*/
+
 
 struct UnixError : public std::exception {
 	const int errorcode;
@@ -35,6 +43,10 @@ struct UnixError : public std::exception {
 };
 
 bool can_read_inode(struct fuse_context *ctx, INode& inode) {
+	// TODO: if we are privlidged ignore whether we are the owner of the file or not i.e. if we are root
+	fprintf(stdout, "\tcan_read_inode(ctx.uid = %d, ctx.gid = %d, ctx.pid = %d, inode.data.permissions = %d, inode.data.uid = %d, inode.data.gid = %d)\n",
+		ctx->uid, ctx->gid, ctx->pid,
+		inode.data.permissions, inode.data.UID, inode.data.GID);
 	return 
 		S_IROTH & inode.data.permissions || // anone can read
 		((inode.data.UID == ctx->uid) && (S_IRUSR & inode.data.permissions)) || // owner can read
@@ -42,6 +54,10 @@ bool can_read_inode(struct fuse_context *ctx, INode& inode) {
 }
 
 bool can_write_inode(struct fuse_context *ctx, INode& inode) {
+	// TODO: if we are privlidged ignore whether we are the owner of the file or not i.e. if we are root
+	fprintf(stdout, "\tcan_write_inode(ctx.uid = %d, ctx.gid = %d, ctx.pid = %d, inode.data.permissions = %d, inode.data.uid = %d, inode.data.gid = %d)\n",
+		ctx->uid, ctx->gid, ctx->pid,
+		inode.data.permissions, inode.data.UID, inode.data.GID);
 	return 
 		S_IWOTH & inode.data.permissions || // anyone can write
 		((inode.data.UID == ctx->uid) && (S_IWUSR & inode.data.permissions)) || // owner can write
@@ -49,6 +65,10 @@ bool can_write_inode(struct fuse_context *ctx, INode& inode) {
 }
 
 bool can_exec_inode(struct fuse_context *ctx, INode& inode) {
+	// TODO: if we are privlidged ignore whether we are the owner of the file or not i.e. if we are root
+	fprintf(stdout, "\tcan_exec_inode(ctx.uid = %d, ctx.gid = %d, ctx.pid = %d, inode.data.permissions = %d, inode.data.uid = %d, inode.data.gid = %d)\n",
+		ctx->uid, ctx->gid, ctx->pid,
+		inode.data.permissions, inode.data.UID, inode.data.GID);
 	return 
 		S_IXOTH & inode.data.permissions || // anyone can exec
 		((inode.data.UID == ctx->uid) && (S_IXUSR & inode.data.permissions)) || // owner can exec
@@ -83,11 +103,11 @@ std::shared_ptr<INode> resolve_path(const char *path) {
 		}
 
 		inode = superblock->inode_table->get_inode(entry->data.inode_idx);
-		if (!can_read_inode(ctx, *inode)) {
-			// this code might as well check that we have access to the path
-			fprintf(stdout, "resolve_path found that access is denied to this directory\n");
-			throw UnixError(EACCES);
-		}
+		// if (!can_read_inode(ctx, *inode)) {
+		// 	// this code might as well check that we have access to the path
+		// 	fprintf(stdout, "resolve_path found that access is denied to this directory\n");
+		// 	throw UnixError(EACCES);
+		// }
 		path = seg_end + 1;
 	}
 
@@ -109,14 +129,15 @@ static int myfs_getattr(const char *path, struct stat *stbuf)
 
 		memset(stbuf, 0, sizeof(struct stat));
 		inode = resolve_path(path);
-		std::cout << path << std::endl;
 		// stbuf->st_mode = inode->get_type() | inode->data.permissions;
-		stbuf->st_mode = inode->get_type() | 0777;
+		stbuf->st_mode = inode->get_type() | inode->data.permissions;
 		stbuf->st_uid = getuid();
 		stbuf->st_gid = getgid();
 		stbuf->st_ino = inode->inode_table_idx;
 		stbuf->st_size = inode->data.file_size;
 		stbuf->st_nlink = 1;
+		stbuf->st_atime = inode->data.last_accessed;
+		stbuf->st_mtime = inode->data.last_modified;
 	}catch(const UnixError &e){
 		return -e.errorcode;
 	}
@@ -129,7 +150,7 @@ static int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 			 off_t offset, struct fuse_file_info *fi)
 {
 	std::lock_guard<std::mutex> g(lock_g);
-	fprintf(stdout, "myfs_readdir(%s, ...)", path);
+	fprintf(stdout, "myfs_readdir(%s, ...)\n", path);
 
 	try {
 		struct fuse_context *ctx = fuse_get_context();
@@ -138,10 +159,10 @@ static int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 		// fprintf(stdout, "\t\tumask: %d\n", ctx->umask);
 
 		std::shared_ptr<INode> dir_inode = resolve_path(path);
-		if (!can_read_inode(ctx, *dir_inode)) {
-			// NOTE: I think this should be handled elsewhere, but that is okay
-			throw UnixError(EACCES);
-		}
+		// if (!can_read_inode(ctx, *dir_inode)) {
+		// 	// NOTE: I think this should be handled elsewhere, but that is okay
+		// 	throw UnixError(EACCES);
+		// }
 
 		IDirectory dir(*dir_inode);
 		std::unique_ptr<IDirectory::DirEntry> entry = nullptr;
@@ -230,40 +251,114 @@ static int myfs_mknod(const char *path, mode_t mode, dev_t rdev) {
 
 static int myfs_open(const char *path, struct fuse_file_info *fi)
 {
+	// TODO: you can use fuse_get_context private data to store the inode that is retrieved here
+	// for use in subsequent syscalls on the same path
+	// that's exciting!
+
 	std::lock_guard<std::mutex> g(lock_g);
+	fprintf(stdout, "myfs_open(%s, ...)\n", path); 
+	
+	struct fuse_context *ctx = fuse_get_context();
 
-	//printf("open called!!!");
+	try {
+		// TODO: store the inode in the fuse_file_info
+		std::shared_ptr<INode> file_inode = resolve_path(path);
+		if (file_inode == nullptr) {
+			throw UnixError(EEXIST);
+		}
 
-	//if (strcmp(path, myfs_path) != 0)
-	//	return -ENOENT;
+		// check for permission to open the file
+		// if (fi->flags & O_RDONLY && !can_read_inode(ctx, *file_inode) != 0) {
+		// 	throw UnixError(EACCES);
+		// }
 
-	//if ((fi->flags & 3) != O_RDONLY)
-	//	return -EACCES;
+		// if (fi->flags & O_WRONLY && !can_write_inode(ctx, *file_inode) != 0) {
+		// 	throw UnixError(EACCES);
+		// }
 
-	//return 0;
-	return -ENOENT;
+		return 0; // TODO: figure out propre return value
+	} catch (const UnixError &e) {
+		return -e.errorcode;
+	}
 }
 
 static int myfs_read(const char *path, char *buf, size_t size, off_t offset,
 		      struct fuse_file_info *fi)
 {
 	std::lock_guard<std::mutex> g(lock_g);
+	fprintf(stdout, "myfs_read(%s, ...)\n", path); 
+	
+	struct fuse_context *ctx = fuse_get_context();
 
-	//size_t len;
-	//(void) fi;
-	//if(strcmp(path, myfs_path) != 0)
-	//	return -ENOENT;
+	try {
+		// TODO: store the inode in the fuse_file_info
+		std::shared_ptr<INode> file_inode = resolve_path(path);
+		if (file_inode == nullptr) {
+			throw UnixError(EEXIST);
+		}
 
-	//len = strlen(myfs_str);
-	//if (offset < len) {
-	//	if (offset + size > len)
-	//		size = len - offset;
-	//	memcpy(buf, myfs_str + offset, size);
-	//} else
-	//	size = 0;
+		// check for permission to open the file
+		// if (fi->flags & O_RDONLY) {
+		// 	throw UnixError(EACCES);
+		// }
 
-	//return size;
-	return 0;
+		// return the resutl of the read
+		return file_inode->read(offset, buf, size);
+	} catch (const UnixError &e) {
+		return -e.errorcode;
+	}
+}
+
+static int myfs_write(const char *path, const char *buf, size_t size, off_t offset,
+		      struct fuse_file_info *fi)
+{
+	std::lock_guard<std::mutex> g(lock_g);
+	fprintf(stdout, "myfs_read(%s, ...)\n", path); 
+	
+	struct fuse_context *ctx = fuse_get_context();
+
+	try {
+		// TODO: store the inode in the fuse_file_info
+		std::shared_ptr<INode> file_inode = resolve_path(path);
+		if (file_inode == nullptr) {
+			throw UnixError(EEXIST);
+		}
+
+		// if (fi->flags & O_WRONLY) {
+		// 	throw UnixError(EACCES);
+		// }
+
+		// return the resutl of the read
+		return file_inode->write(offset, buf, size);
+	} catch (const UnixError &e) {
+		return -e.errorcode;
+	}
+}
+
+static int myfs_utimens(const char* path, const struct timespec ts[2]) {
+	std::lock_guard<std::mutex> g(lock_g);
+	fprintf(stdout, "myfs_utimens(%s, ts[0] = %lu, ts[1] = %lu, ...)\n", path, round(ts[0].tv_nsec / 1.0e6), round(ts[1].tv_nsec / 1.0e6)); 
+	
+	struct fuse_context *ctx = fuse_get_context();
+
+	try {
+		// TODO: store the inode in the fuse_file_info
+		std::shared_ptr<INode> file_inode = resolve_path(path);
+		if (file_inode == nullptr) {
+			throw UnixError(EEXIST);
+		}
+
+		// if (!can_write_inode(ctx, *file_inode)) {
+		// 	fprintf(stdout, "\tutimens permission denied to access inode\n");
+		// 	throw UnixError(EACCES);
+		// }
+
+		// return the resutl of the read
+		file_inode->data.last_accessed = round(ts[0].tv_nsec / 1.0e6);
+		file_inode->data.last_modified = round(ts[1].tv_nsec / 1.0e6);
+	} catch (const UnixError &e) {
+		return -e.errorcode;
+	}
 }
 
 int main(int argc, char *argv[])
@@ -279,8 +374,9 @@ int main(int argc, char *argv[])
 	myfs_oper.readdir = myfs_readdir;
 	myfs_oper.open = myfs_open;
 	myfs_oper.read = myfs_read;
+	myfs_oper.write = myfs_write;
 	myfs_oper.mknod = myfs_mknod;
-
-
+	myfs_oper.utimens = myfs_utimens;
+	
 	return fuse_main(argc, argv, &myfs_oper, NULL);
 }
