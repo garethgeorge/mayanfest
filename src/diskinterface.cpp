@@ -65,6 +65,7 @@ Disk::~Disk() {
 */
 
 DiskBitMap::DiskBitMap(Disk *disk, Size chunk_start, Size size_in_bits) {
+	this->disk_chunk_size = disk->chunk_size();
 	this->size_in_bits = size_in_bits;
 	this->disk = disk;
 	for (uint64_t idx = 0; idx < this->size_chunks(); ++idx) {

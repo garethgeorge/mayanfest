@@ -126,15 +126,15 @@ public:
 		std::memset(this->data, 0, this->size_bytes());
 	}
 
-	inline Size size_bytes() const {
+	inline const Size size_bytes() const {
 		return _size_chunks * _chunk_size;
 	}
 
-	inline Size size_chunks() const {
+	inline const Size size_chunks() const {
 		return _size_chunks;
 	}
 
-	inline Size chunk_size() const {
+	inline const Size chunk_size() const {
 		return _chunk_size;
 	}
 
@@ -157,32 +157,33 @@ struct DiskBitMap {
 	Size size_in_bits;
 	std::vector<std::shared_ptr<Chunk>> chunks;
 	Size last_search_idx = 0;
-
+	Size disk_chunk_size = 0;
+	
 	DiskBitMap(Disk *disk, Size chunk_start, Size size_in_bits);
 
 	~DiskBitMap();
 
 	void clear_all();
 
-	Size size_bytes() const {
+	inline Size size_bytes() const {
 		// add an extra byte which will be used for padding
 		return size_in_bits / 8 + 2;
 	}
 
-	Size size_chunks() const {
-		return this->size_bytes() / disk->chunk_size() + 1;
+	inline Size size_chunks() const {
+		return this->size_bytes() / disk_chunk_size + 1;
+	}
+
+	inline const Byte get_byte_for_idx(Size idx) const {
+		uint64_t byte_idx = idx / 8;
+		Byte *data = this->chunks[byte_idx / disk_chunk_size]->data.get();
+		return data[byte_idx % disk_chunk_size];
 	}
 
 	inline Byte &get_byte_for_idx(Size idx) {
 		uint64_t byte_idx = idx / 8;
-		Byte *data = this->chunks[byte_idx / disk->chunk_size()]->data.get();
-		return data[byte_idx % disk->chunk_size()];
-	}
-
-	inline const Byte &get_byte_for_idx(Size idx) const {
-		uint64_t byte_idx = idx / 8;
-		Byte *data = this->chunks[byte_idx / disk->chunk_size()]->data.get();
-		return data[byte_idx % disk->chunk_size()];
+		Byte *data = this->chunks[byte_idx / disk_chunk_size]->data.get();
+		return data[byte_idx % disk_chunk_size];
 	}
 
 	inline bool get(Size idx) const {
