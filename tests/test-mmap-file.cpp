@@ -13,11 +13,9 @@ TEST_CASE( "Should be able to construct a filesystem in a memory mapped file", "
 
 	constexpr uint64_t CHUNK_COUNT = 4096;
 	constexpr uint64_t CHUNK_SIZE = 4096;
-
-
 	{
-		truncate("disk.myanfest", CHUNK_COUNT * CHUNK_SIZE);
 		int fh = open("disk.myanfest", O_RDWR | O_CREAT);
+		truncate("disk.myanfest", CHUNK_COUNT * CHUNK_SIZE);
 
 		std::unique_ptr<Disk> disk(new Disk(CHUNK_COUNT, CHUNK_SIZE, MAP_FILE | MAP_SHARED, fh));
 		std::unique_ptr<FileSystem> fs(new FileSystem(disk.get()));

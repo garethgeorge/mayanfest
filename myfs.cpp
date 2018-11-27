@@ -94,9 +94,11 @@ std::shared_ptr<INode> resolve_path(const char *path) {
 			throw UnixError(ENOTDIR);
 		}
 
-		strncpy(path_segment, path, seg_end - path - 1);
+		strncpy(path_segment, path, seg_end - path);
+		path_segment[seg_end - path] = 0;
 
 		IDirectory dir(*inode); // load the directory for the inode
+		fprintf(stdout, "\ttrying to find path segment: %s\n", path_segment);
 		std::unique_ptr<IDirectory::DirEntry> entry = dir.get_file(path_segment);
 		if (entry == nullptr) {
 			throw UnixError(ENOENT);
@@ -121,14 +123,16 @@ std::shared_ptr<INode> resolve_path(const char *path) {
 
 static int myfs_getattr(const char *path, struct stat *stbuf)
 {
+	fprintf(stdout, "myfs_getattr(%s, ...)\n", path);
 	std::lock_guard<std::mutex> g(lock_g);
 	int res = 0;
-	try{
+	try {
 		std::shared_ptr<INode> inode;
 		mode_t type;
 
 		memset(stbuf, 0, sizeof(struct stat));
 		inode = resolve_path(path);
+		
 		// stbuf->st_mode = inode->get_type() | inode->data.permissions;
 		stbuf->st_mode = inode->get_type() | inode->data.permissions;
 		stbuf->st_uid = getuid();
@@ -138,7 +142,8 @@ static int myfs_getattr(const char *path, struct stat *stbuf)
 		stbuf->st_nlink = 1;
 		stbuf->st_atime = inode->data.last_accessed;
 		stbuf->st_mtime = inode->data.last_modified;
-	}catch(const UnixError &e){
+	} catch (const UnixError &e) {
+		fprintf(stdout, "\terror: %d\n", e.errorcode);
 		return -e.errorcode;
 	}
 	//res = -ENOENT;
@@ -206,6 +211,7 @@ static int myfs_mknod(const char *path, mode_t mode, dev_t rdev) {
 		fprintf(stdout, "mkfs_mknod(%s, %d, ...)\n", path, mode);
 		fprintf(stdout, "\tplacing node in directory: %s file name: %s\n", dir, name);
 		if (!can_write_inode(ctx, *dir_inode)) {
+			fprintf(stdout, "\tcan not write inode! throw EACCES\n");
 			throw UnixError(EACCES);
 		}
 
@@ -221,14 +227,17 @@ static int myfs_mknod(const char *path, mode_t mode, dev_t rdev) {
 
 		// set the mode correctly
 		if (S_ISDIR(mode)) {
+			fprintf(stdout, "\tS_ISDIR(mode %d) so we are creating a directory\n", mode);
 			// properly initialize the empty directory
 			new_inode->set_type(S_IFDIR);
 			IDirectory dir(*new_inode);
 			dir.initializeEmpty();
 		} else if (S_ISREG(mode)) {
+			fprintf(stdout, "\tS_ISREG(mode %d) so we are creating a regular file\n", mode);
 			new_inode->set_type(S_IFREG);
 		} else {
-			throw UnixError(EPERM);
+			fprintf(stdout, "\tunrecognized file creation mode: %d\n", mode);
+			throw UnixError(EINVAL); // todo: what is the correct error message here
 		}
 
 		// the file already exists in this directory
@@ -247,6 +256,11 @@ static int myfs_mknod(const char *path, mode_t mode, dev_t rdev) {
 	}
 	
 	return 0;
+}
+
+static int myfs_mkdir(const char *path, mode_t mode) {
+	fprintf(stdout, "myfs_mkdir(%s, %d -> %d)\n", path, mode, mode | S_IFDIR);
+	return myfs_mknod(path, mode | S_IFDIR, 0);
 }
 
 static int myfs_open(const char *path, struct fuse_file_info *fi)
@@ -376,6 +390,7 @@ int main(int argc, char *argv[])
 	myfs_oper.read = myfs_read;
 	myfs_oper.write = myfs_write;
 	myfs_oper.mknod = myfs_mknod;
+	myfs_oper.mkdir = myfs_mkdir;
 	myfs_oper.utimens = myfs_utimens;
 	
 	return fuse_main(argc, argv, &myfs_oper, NULL);
