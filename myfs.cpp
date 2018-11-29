@@ -48,6 +48,7 @@ bool can_read_inode(struct fuse_context *ctx, INode& inode) {
 	fprintf(stdout, "\tcan_read_inode(ctx.uid = %d, ctx.gid = %d, ctx.pid = %d, inode.data.permissions = %d, inode.data.uid = %d, inode.data.gid = %d)\n",
 		ctx->uid, ctx->gid, ctx->pid,
 		inode.data.permissions, inode.data.UID, inode.data.GID);
+	if(ctx->uid == 0) return true;
 	return 
 		S_IROTH & inode.data.permissions || // anone can read
 		((inode.data.UID == ctx->uid) && (S_IRUSR & inode.data.permissions)) || // owner can read
@@ -59,6 +60,7 @@ bool can_write_inode(struct fuse_context *ctx, INode& inode) {
 	fprintf(stdout, "\tcan_write_inode(ctx.uid = %d, ctx.gid = %d, ctx.pid = %d, inode.data.permissions = %d, inode.data.uid = %d, inode.data.gid = %d)\n",
 		ctx->uid, ctx->gid, ctx->pid,
 		inode.data.permissions, inode.data.UID, inode.data.GID);
+	if(ctx->uid == 0) return true;
 	return 
 		S_IWOTH & inode.data.permissions || // anyone can write
 		((inode.data.UID == ctx->uid) && (S_IWUSR & inode.data.permissions)) || // owner can write
