@@ -25,9 +25,10 @@ std::shared_ptr<Chunk> Disk::get_chunk(Size chunk_idx) {
 	chunk->parent = this; 
 	chunk->size_bytes = this->chunk_size();
 	chunk->chunk_idx = chunk_idx;
-	chunk->data = std::unique_ptr<Byte[]>(new Byte[this->chunk_size()]);
-	std::memcpy(chunk->data.get(), this->data + chunk_idx * this->chunk_size(), 
-		this->chunk_size());
+	chunk->data = this->data + chunk_idx * this->chunk_size();
+	// chunk->data = std::unique_ptr<Byte[]>(new Byte[this->chunk_size()]);
+	// std::memcpy(chunk->data.get(), this->data + chunk_idx * this->chunk_size(), 
+	// 	this->chunk_size());
 
 	// store it into the chunk cache so that it can be shared if requested again
 	this->chunk_cache.put(chunk_idx, chunk); 
@@ -40,8 +41,21 @@ void Disk::flush_chunk(const Chunk& chunk) {
 	assert(chunk.size_bytes == this->chunk_size());
 	assert(chunk.parent == this);
 
-	std::memcpy(this->data + chunk.chunk_idx * this->chunk_size(), 
-		chunk.data.get(), this->chunk_size());
+	// std::memcpy(this->data + chunk.chunk_idx * this->chunk_size(), 
+	// 	chunk.data.get(), this->chunk_size());
+	size_t chunk_addr = (size_t)chunk.data;
+	chunk_addr &= ~(this->_mempage_size - 1);
+
+	size_t page_count = this->_chunk_size / this->_mempage_size;
+	if (this->_chunk_size % this->_mempage_size != 0) 
+		page_count++;
+
+	int sync_retval = msync((void *)chunk_addr, page_count * this->_mempage_size, MS_SYNC);
+	if (sync_retval != 0) {
+		char buff[1024];
+		sprintf(buff, "msync failed to synchronize the chunk segment with the disk, error code %d", sync_retval);
+		throw DiskException(buff);
+	}
 }
 
 void Disk::try_close() {
@@ -83,7 +97,7 @@ DiskBitMap::~DiskBitMap() {
 
 void DiskBitMap::clear_all() {
 	for (std::shared_ptr<Chunk>& chunk : chunks) {
-		std::memset(chunk->data.get(), 0, chunk->size_bytes);
+		std::memset(chunk->data, 0, chunk->size_bytes);
 	}
 
 	for (uint64_t idx = this->size_in_bits; idx < this->size_in_bits + 8; ++idx) {
