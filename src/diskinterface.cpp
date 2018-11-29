@@ -101,7 +101,7 @@ void DiskBitMap::clear_all() {
 	}
 
 	for (uint64_t idx = this->size_in_bits; idx < this->size_in_bits + 8; ++idx) {
-		this->set(idx);
+		this->set_oob(idx);
 	}
 }
 

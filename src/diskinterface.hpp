@@ -168,7 +168,7 @@ struct DiskBitMap {
 
 	inline Size size_bytes() const {
 		// add an extra byte which will be used for padding
-		return size_in_bits / 8 + 2;
+		return size_in_bits / 8 + 8; // plenty of padding
 	}
 
 	inline Size size_chunks() const {
@@ -188,16 +188,31 @@ struct DiskBitMap {
 	}
 
 	inline bool get(Size idx) const {
+		if (idx >= size_in_bits) {
+			throw DiskException("BitMap index out of range");
+		}
 		Byte byte = get_byte_for_idx(idx);
 		return byte & (1 << (idx % 8));
 	}
 
+	// allows setting 'out of bounds'
+	inline void set_oob(Size idx) {
+		Byte& byte = get_byte_for_idx(idx);
+		byte |= (1 << (idx % 8));
+	}
+
 	inline void set(Size idx) {
+		if (idx >= size_in_bits) {
+			throw DiskException("BitMap index out of range");
+		}
 		Byte& byte = get_byte_for_idx(idx);
 		byte |= (1 << (idx % 8));
 	}
 
 	inline void clr(Size idx) {
+		if (idx >= size_in_bits) {
+			throw DiskException("BitMap index out of range");
+		}
 		Byte& byte = get_byte_for_idx(idx);
 		byte &= ~(1 << (idx % 8));
 	}

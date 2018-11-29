@@ -16,7 +16,7 @@ set(CMAKE_CXX_FLAGS_DEBUG "-std=c++11 -O0 -g -pg -D_FILE_OFFSET_BITS=64")
 set(CMAKE_CXX_FLAGS_RELEASE "-std=c++11 -O3 -march=native -flto -pg -D_FILE_OFFSET_BITS=64")
 
 # include cotire, an automatic build accelerator for cmake
-include(cotire)
+# include(cotire)
 include(FindFUSE)
 
 # set lib as an include directory so we can use #include <filename>
@@ -35,7 +35,7 @@ file(GLOB_RECURSE SRCS_Mayanfest
 # create a static library for mypy sources
 # 
 add_library( mayanfest ${SRCS_Mayanfest} )
-cotire(mayanfest)
+# cotire(mayanfest)
 
 #
 # create mypy executable
@@ -73,7 +73,11 @@ if(FUSE_FOUND)
     myfs.cpp
   )
   target_link_libraries(myfs ${FUSE_LIBRARIES} mayanfest)
+  add_executable(mkfs.myfs
+    mkfs.myfs.cpp
+  )
+  target_link_libraries(mkfs.myfs ${FUSE_LIBRARIES} mayanfest)
 endif()
 
 # Finally, apply coiture
-cotire(cmake_test)
+# cotire(cmake_test)

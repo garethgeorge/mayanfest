@@ -23,6 +23,7 @@
 #include <unistd.h>
 #include <libgen.h>
 #include <math.h>
+#include <signal.h>
 
 #include "filesystem.hpp"
 
@@ -376,14 +377,19 @@ static int myfs_utimens(const char* path, const struct timespec ts[2]) {
 	}
 }
 
+
+void sig_handler(int);
+
 int main(int argc, char *argv[])
 {
-	const size_t CHUNK_COUNT = 1024 * 1024;
+	signal(SIGSEGV, sig_handler);
+
+	const size_t CHUNK_COUNT =  1024;
 	const size_t CHUNK_SIZE = 4096;
 
 	int fh = open("realdisk.myanfest", O_RDWR | O_CREAT);
 	truncate("realdisk.myanfest", CHUNK_COUNT * CHUNK_SIZE);
-	std::unique_ptr<Disk> disk(new Disk(CHUNK_COUNT, CHUNK_SIZE, MAP_FILE | MAP_SHARED, fh));
+	disk = std::unique_ptr<Disk>(new Disk(CHUNK_COUNT, CHUNK_SIZE, MAP_FILE | MAP_SHARED, fh));
 	fs = std::unique_ptr<FileSystem>(new FileSystem(disk.get()));
 	fs->superblock->init(0.1);
 	superblock = fs->superblock.get();
@@ -399,4 +405,16 @@ int main(int argc, char *argv[])
 	myfs_oper.utimens = myfs_utimens;
 	
 	return fuse_main(argc, argv, &myfs_oper, NULL);
+}
+
+void sig_handler(int sig) {
+	switch (sig) {
+		case SIGSEGV:
+			fs = nullptr;
+			disk = nullptr;
+			abort();
+		default:
+			fprintf(stderr, "wasn't expecting that!\n");
+			abort();
+	}
 }
