@@ -9,6 +9,7 @@
 #include <array>
 #include <iostream>
 #include <sys/mman.h>
+#include <unistd.h>
 
 #include <cstring>
 #include <memory>
@@ -33,7 +34,7 @@ struct Chunk {
 	std::mutex lock;
 	size_t size_bytes = 0;
 	size_t chunk_idx = 0;
-	std::unique_ptr<Byte[]> data = nullptr;
+	Byte *data = nullptr;
 
 	~Chunk();
 };
@@ -91,6 +92,7 @@ private:
 	// properties of the class
 	const Size _size_chunks;
 	const Size _chunk_size;
+	const size_t _mempage_size = sysconf(_SC_PAGESIZE); // get the memory page size;
 
 	Byte* data;
 
@@ -114,7 +116,6 @@ public:
 		int flags = MAP_PRIVATE | MAP_ANONYMOUS, int fd = -1) 
 		: _chunk_size(chunk_size_ctr), _size_chunks(size_chunk_ctr) {
 		
-		// initialize data as a memory mapped file
 		this->data = (Byte *)mmap(NULL, this->size_bytes(), PROT_READ | PROT_WRITE, flags, fd, 0);
 		if (data == NULL) {
 			throw DiskException("failed to create the memory mapped file to back the disk");
@@ -176,13 +177,13 @@ struct DiskBitMap {
 
 	inline const Byte get_byte_for_idx(Size idx) const {
 		uint64_t byte_idx = idx / 8;
-		Byte *data = this->chunks[byte_idx / disk_chunk_size]->data.get();
+		Byte *data = this->chunks[byte_idx / disk_chunk_size]->data;
 		return data[byte_idx % disk_chunk_size];
 	}
 
 	inline Byte &get_byte_for_idx(Size idx) {
 		uint64_t byte_idx = idx / 8;
-		Byte *data = this->chunks[byte_idx / disk_chunk_size]->data.get();
+		Byte *data = this->chunks[byte_idx / disk_chunk_size]->data;
 		return data[byte_idx % disk_chunk_size];
 	}
 

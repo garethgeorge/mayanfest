@@ -19,7 +19,7 @@ TEST_CASE( "Disk interface should work", "[diskinterface]" ) {
 	SECTION("that chunk should be filled with 0's by default") {
 		chunk0 = disk->get_chunk(0);
 		for (size_t i = 0; i < disk->chunk_size(); ++i) {
-			if (chunk0->data.get()[i] != 0) {
+			if (chunk0->data[i] != 0) {
 				REQUIRE(false);
 			}
 		}
@@ -43,19 +43,19 @@ TEST_CASE( "Disk interface should work", "[diskinterface]" ) {
 	SECTION("can get two references to the same chunk, change a value in one, and see it in the other") {
 		std::shared_ptr<Chunk> refA = disk->get_chunk(2);
 		std::shared_ptr<Chunk> refB = disk->get_chunk(2);
-		refA->data.get()[0] = 1;
-		REQUIRE(refB->data.get()[0] == 1);
+		refA->data[0] = 1;
+		REQUIRE(refB->data[0] == 1);
 	}
 
 	SECTION("can get a reference, release it thus flushing chunk to disk, and then get a new reference and find the same data") {
 		{
 			std::shared_ptr<Chunk> refA = disk->get_chunk(4);
-			refA->data.get()[0] = 1;
+			refA->data[0] = 1;
 		}
 		
 		{
 			std::shared_ptr<Chunk> refB = disk->get_chunk(4);
-			REQUIRE(refB->data.get()[0] == 1);
+			REQUIRE(refB->data[0] == 1);
 		}
 	}
 }

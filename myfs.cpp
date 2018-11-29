@@ -123,6 +123,7 @@ std::shared_ptr<INode> resolve_path(const char *path) {
 
 static int myfs_getattr(const char *path, struct stat *stbuf)
 {
+	struct fuse_context *ctx = fuse_get_context();
 	fprintf(stdout, "myfs_getattr(%s, ...)\n", path);
 	std::lock_guard<std::mutex> g(lock_g);
 	int res = 0;
@@ -135,8 +136,8 @@ static int myfs_getattr(const char *path, struct stat *stbuf)
 		
 		// stbuf->st_mode = inode->get_type() | inode->data.permissions;
 		stbuf->st_mode = inode->get_type() | inode->data.permissions;
-		stbuf->st_uid = getuid();
-		stbuf->st_gid = getgid();
+		stbuf->st_uid = inode->data.UID;
+		stbuf->st_gid = inode->data.GID;
 		stbuf->st_ino = inode->inode_table_idx;
 		stbuf->st_size = inode->data.file_size;
 		stbuf->st_nlink = 1;
@@ -377,8 +378,12 @@ static int myfs_utimens(const char* path, const struct timespec ts[2]) {
 
 int main(int argc, char *argv[])
 {
-	
-	disk = std::unique_ptr<Disk>(new Disk(1024*1024*1024 / 512, 512));
+	const size_t CHUNK_COUNT = 1024 * 1024;
+	const size_t CHUNK_SIZE = 4096;
+
+	int fh = open("realdisk.myanfest", O_RDWR | O_CREAT);
+	truncate("realdisk.myanfest", CHUNK_COUNT * CHUNK_SIZE);
+	std::unique_ptr<Disk> disk(new Disk(CHUNK_COUNT, CHUNK_SIZE, MAP_FILE | MAP_SHARED, fh));
 	fs = std::unique_ptr<FileSystem>(new FileSystem(disk.get()));
 	fs->superblock->init(0.1);
 	superblock = fs->superblock.get();
