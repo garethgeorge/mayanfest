@@ -178,6 +178,34 @@ class IntegrationTest(unittest.TestCase):
 
         assert A == B
 
+    def testWriteReadMore(self):
+        ''' write to file and then try to read more chars '''
+        fileName = 'testWriteReadMore.txt'
+        content = 'whatever bruh'
+
+        testFileName = os.path.join(self.testPoint, fileName)
+        mountFileName = os.path.join(self.mountPoint, fileName)
+        os.mknod(testFileName)
+        os.mknod(mountFileName)
+
+        testFD = os.open(testFileName, os.O_WRONLY)
+        os.write(testFD, content)
+        os.close(testFD)
+
+        mountFD = os.open(mountFileName, os.O_WRONLY)
+        os.write(mountFD, content)
+        os.close(mountFD)
+
+        testFD = os.open(testFileName, os.O_RDONLY)
+        A = os.read(testFD, len(content) * 2)
+        os.close(testFD)
+
+        mountFD = os.open(mountFileName, os.O_RDONLY)
+        B = os.read(mountFD, len(content) * 2)
+        os.close(mountFD)
+
+        assert A == B
+
 
 
 if __name__ == "__main__":
