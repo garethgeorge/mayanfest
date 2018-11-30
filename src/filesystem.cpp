@@ -17,6 +17,7 @@ const uint64_t INode::INDIRECT_TABLE_SIZES[4] = {DIRECT_ADDRESS_COUNT, INDIRECT_
 uint64_t INode::read(uint64_t starting_offset, char *buf, uint64_t bytes_to_write) {
 	const uint64_t chunk_size = this->superblock->disk_chunk_size;
     int64_t n = bytes_to_write;
+    uint64_t bytes_written = bytes_to_write;
 
     if (starting_offset + bytes_to_write > this->data.file_size) {
         // TODO: test this error case
@@ -79,12 +80,19 @@ uint64_t INode::read(uint64_t starting_offset, char *buf, uint64_t bytes_to_writ
         }
     }
 
-    return bytes_to_write;
+    return bytes_written;
 }
 
 uint64_t INode::write(uint64_t starting_offset, const char *buf, uint64_t bytes_to_write) {
     const uint64_t chunk_size = this->superblock->disk_chunk_size;
     int64_t n = bytes_to_write;
+    uint64_t bytes_written = bytes_to_write;
+    
+    // std::cout << "WRITING BYTES: starting offset " << starting_offset << " count " << bytes_to_write << std::endl;
+
+    if (starting_offset + bytes_to_write > this->data.file_size) {
+        this->data.file_size = starting_offset + bytes_to_write;
+    }
 
     // room to write for the first chunk
     const uint64_t room_first_chunk = chunk_size - starting_offset % chunk_size;
@@ -95,9 +103,6 @@ uint64_t INode::write(uint64_t starting_offset, const char *buf, uint64_t bytes_
 
     {
         std::shared_ptr<Chunk> chunk = this->resolve_indirection(starting_offset / chunk_size, true);
-        if (chunk == nullptr) {
-            return 0;
-        }
         std::lock_guard<std::mutex> g(chunk->lock);
         std::memcpy(chunk->data + (starting_offset % chunk_size), buf, bytes_write_first_chunk);
         buf += bytes_write_first_chunk;
@@ -105,9 +110,6 @@ uint64_t INode::write(uint64_t starting_offset, const char *buf, uint64_t bytes_
     }
     
     if (n == 0) { // early return if we wrote less than a chunk
-        if (starting_offset + bytes_to_write > this->data.file_size) {
-            this->data.file_size = starting_offset + bytes_to_write;
-        }
         return bytes_to_write;
     }
 
@@ -117,11 +119,6 @@ uint64_t INode::write(uint64_t starting_offset, const char *buf, uint64_t bytes_
 
     while (n > chunk_size) {
         std::shared_ptr<Chunk> chunk = this->resolve_indirection(starting_offset / chunk_size, true);
-        if (chunk == nullptr) {
-            if (starting_offset + bytes_to_write - n > this->data.file_size) 
-                this->data.file_size = starting_offset + bytes_to_write - n;
-            return bytes_to_write - n;
-        }
         std::lock_guard<std::mutex> g(chunk->lock);
         std::memcpy(chunk->data, buf, chunk_size);
         buf += chunk_size;
@@ -131,22 +128,11 @@ uint64_t INode::write(uint64_t starting_offset, const char *buf, uint64_t bytes_
     
     {
         std::shared_ptr<Chunk> chunk = this->resolve_indirection(starting_offset / chunk_size, true);
-        if (chunk == nullptr) {
-            if (starting_offset + bytes_to_write - n > this->data.file_size) {
-                this->data.file_size = starting_offset + bytes_to_write - n;
-            }
-            return bytes_to_write - n;
-        }
         std::lock_guard<std::mutex> g(chunk->lock);
         std::memcpy(chunk->data, buf, n);
     }
 
-    // update the filesize, we wrote the bytes correctly
-    if (starting_offset + bytes_to_write > this->data.file_size) {
-        this->data.file_size = starting_offset + bytes_to_write;
-    }
-
-    return bytes_to_write;
+    return bytes_written;
 }
 
 std::shared_ptr<Chunk> INode::resolve_indirection(uint64_t chunk_number, bool createIfNotExists) {
@@ -253,6 +239,11 @@ std::shared_ptr<Chunk> INode::resolve_indirection(uint64_t chunk_number, bool cr
         chunk_number -= (indirect_address_count * INDIRECT_TABLE_SIZES[indirection]);
         indirect_table += INDIRECT_TABLE_SIZES[indirection];
         indirect_address_count *= num_chunk_address_per_chunk;
+    }
+
+    if (createIfNotExists) {
+        fprintf(stdout, "\tERROR! THIS SHOULD NEVER HAPPEN. INODE INDIRECTION TABLE RAN OUT OF SPACE. TELL A PROGRAMMER\n");
+        throw FileSystemException("INode indirection table ran out of space");
     }
     return nullptr;
 }

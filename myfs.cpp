@@ -317,12 +317,6 @@ static int myfs_read(const char *path, char *buf, size_t size, off_t offset,
 			throw UnixError(EEXIST);
 		}
 
-		// check for permission to open the file
-		// if (fi->flags & O_RDONLY) {
-		// 	throw UnixError(EACCES);
-		// }
-
-		// return the resutl of the read
 		return file_inode->read(offset, buf, size);
 	} catch (const UnixError &e) {
 		return -e.errorcode;
@@ -344,16 +338,11 @@ static int myfs_write(const char *path, const char *buf, size_t size, off_t offs
 			throw UnixError(EEXIST);
 		}
 
-		// if (fi->flags & O_WRONLY) {
-		// 	throw UnixError(EACCES);
-		// }
-
-		// return the resutl of the read
 		try {
 			return file_inode->write(offset, buf, size);
 		} catch (FileSystemException &e) {
-      // TODO: IMPORTANT!!! ADD CODE TO FULLY REMOVE THE PARTIALLY WRITTEN INODE AND THEN FREE THE INODE 
-      throw UnixError(EDQUOT);
+			// TODO: IMPORTANT!!! ADD CODE TO FULLY REMOVE THE PARTIALLY WRITTEN INODE AND THEN FREE THE INODE 
+			throw UnixError(EDQUOT);
 		}
 	} catch (const UnixError &e) {
 		return -e.errorcode;
@@ -373,10 +362,10 @@ static int myfs_utimens(const char* path, const struct timespec ts[2]) {
 			throw UnixError(EEXIST);
 		}
 
-		// if (!can_write_inode(ctx, *file_inode)) {
-		// 	fprintf(stdout, "\tutimens permission denied to access inode\n");
-		// 	throw UnixError(EACCES);
-		// }
+		if (!can_write_inode(ctx, *file_inode)) {
+			fprintf(stdout, "\tutimens permission denied to access inode\n");
+			throw UnixError(EACCES);
+		}
 
 		// return the resutl of the read
 		file_inode->data.last_accessed = round(ts[0].tv_nsec / 1.0e6);
@@ -390,6 +379,8 @@ static int myfs_unlink(const char *path) {
 	fprintf(stdout, "myfs_unlink(%s)\n", path);
 	struct fuse_context *ctx = fuse_get_context();
 	
+	
+
 	return 0;
 }
 
