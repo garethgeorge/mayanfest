@@ -236,6 +236,8 @@ static int myfs_mknod(const char *path, mode_t mode, dev_t rdev) {
 			new_inode->set_type(S_IFDIR);
 			IDirectory dir(*new_inode);
 			dir.initializeEmpty();
+			dir.add_file(".", *new_inode);
+			dir.add_file("..", *dir_inode);
 		} else if (S_ISREG(mode)) {
 			fprintf(stdout, "\tS_ISREG(mode %d) so we are creating a regular file\n", mode);
 			new_inode->set_type(S_IFREG);
@@ -277,7 +279,7 @@ static int myfs_open(const char *path, struct fuse_file_info *fi)
 	fprintf(stdout, "myfs_open(%s, ...)\n", path); 
 	
 	struct fuse_context *ctx = fuse_get_context();
-
+	
 	try {
 		// TODO: store the inode in the fuse_file_info
 		std::shared_ptr<INode> file_inode = resolve_path(path);
@@ -286,13 +288,13 @@ static int myfs_open(const char *path, struct fuse_file_info *fi)
 		}
 
 		// check for permission to open the file
-		// if (fi->flags & O_RDONLY && !can_read_inode(ctx, *file_inode) != 0) {
-		// 	throw UnixError(EACCES);
-		// }
+		if (fi->flags & O_RDONLY && !can_read_inode(ctx, *file_inode) != 0) {
+			throw UnixError(EACCES);
+		}
 
-		// if (fi->flags & O_WRONLY && !can_write_inode(ctx, *file_inode) != 0) {
-		// 	throw UnixError(EACCES);
-		// }
+		if (fi->flags & O_WRONLY && !can_write_inode(ctx, *file_inode) != 0) {
+			throw UnixError(EACCES);
+		}
 
 		return 0; // TODO: figure out propre return value
 	} catch (const UnixError &e) {
@@ -304,7 +306,7 @@ static int myfs_read(const char *path, char *buf, size_t size, off_t offset,
 		      struct fuse_file_info *fi)
 {
 	std::lock_guard<std::mutex> g(lock_g);
-	fprintf(stdout, "myfs_read(%s, ...)\n", path); 
+	fprintf(stdout, "myfs_read(%s, %d, %d, ...)\n", path, size, offset); 
 	
 	struct fuse_context *ctx = fuse_get_context();
 
@@ -331,7 +333,7 @@ static int myfs_write(const char *path, const char *buf, size_t size, off_t offs
 		      struct fuse_file_info *fi)
 {
 	std::lock_guard<std::mutex> g(lock_g);
-	fprintf(stdout, "myfs_read(%s, ...)\n", path); 
+	fprintf(stdout, "myfs_write(%s, %d, %d,...)\n", path, size, offset);
 	
 	struct fuse_context *ctx = fuse_get_context();
 
@@ -347,7 +349,12 @@ static int myfs_write(const char *path, const char *buf, size_t size, off_t offs
 		// }
 
 		// return the resutl of the read
-		return file_inode->write(offset, buf, size);
+		try {
+			return file_inode->write(offset, buf, size);
+		} catch (FileSystemException &e) {
+      // TODO: IMPORTANT!!! ADD CODE TO FULLY REMOVE THE PARTIALLY WRITTEN INODE AND THEN FREE THE INODE 
+      throw UnixError(EDQUOT);
+		}
 	} catch (const UnixError &e) {
 		return -e.errorcode;
 	}
@@ -379,6 +386,12 @@ static int myfs_utimens(const char* path, const struct timespec ts[2]) {
 	}
 }
 
+static int myfs_unlink(const char *path) {
+	fprintf(stdout, "myfs_unlink(%s)\n", path);
+	struct fuse_context *ctx = fuse_get_context();
+	
+	return 0;
+}
 
 void sig_handler(int);
 
