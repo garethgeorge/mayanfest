@@ -140,17 +140,24 @@ struct SuperBlock {
     std::shared_ptr<Chunk> chunk = this->disk->get_chunk(chunk_index);
     return std::move(chunk);
   }
+
+  void free_chunk(std::shared_ptr<Chunk> chunk_to_free) {
+		if (!chunk_to_free.unique()) {
+			throw FileSystemException("FileSystem free chunk failed -- the chunk passed was not 'unique', something else is using it");
+		}
+		this->disk_block_map->clr(chunk_to_free->chunk_idx);
+  }
 };
 
 struct FileSystem {
-  Disk *disk;			
-  std::unique_ptr<SuperBlock> superblock;
-  
-  // the file system, once constructed, takes ownership of the disk
-  FileSystem(Disk *disk) : disk(disk), superblock(new SuperBlock(disk)) {
-  }
+	Disk *disk;			
+	std::unique_ptr<SuperBlock> superblock;
 
-  void printForDebug();
+	// the file system, once constructed, takes ownership of the disk
+	FileSystem(Disk *disk) : disk(disk), superblock(new SuperBlock(disk)) {
+	}
+
+	void printForDebug();
 };
 
 struct INode;
@@ -259,14 +266,14 @@ struct INode {
 	}
 
 	mode_t get_type(){
-	    switch(this->data.file_type){
+		switch(this->data.file_type){
 		case FLAG_IF_DIR:
-		    return S_IFDIR;
+			return S_IFDIR;
 		case FLAG_IF_REG:
-		    return S_IFREG;
+			return S_IFREG;
 		default:
-		    throw FileSystemException("Invalid File Type");
-	    }
+			throw FileSystemException("Invalid File Type");
+		}
 	}
 };
 
@@ -286,7 +293,6 @@ private:
 
 	DirHeader header;
 	INode* inode;
-
 public:
 
 	struct DirEntry {

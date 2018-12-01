@@ -82,6 +82,10 @@ std::shared_ptr<INode> resolve_path(const char *path) {
 	struct fuse_context *ctx = fuse_get_context();
 	std::shared_ptr<INode> inode = superblock->inode_table->get_inode(superblock->root_inode_index);
 
+	if (strlen(path) >= PATH_MAX) {
+		throw UnixError(ENAMETOOLONG);
+	}
+
 	if (strcmp(path, "/") == 0) {
 		// special case to handle root dir
 		return inode;
@@ -147,7 +151,7 @@ static int myfs_getattr(const char *path, struct stat *stbuf)
 		stbuf->st_atime = inode->data.last_accessed;
 		stbuf->st_mtime = inode->data.last_modified;
 	} catch (const UnixError &e) {
-		fprintf(stdout, "\terror: %d\n", e.errorcode);
+		fprintf(stdout, "\tmyfs_getattr encountered error %d\n", e.errorcode);
 		return -e.errorcode;
 	}
 	//res = -ENOENT;
@@ -168,10 +172,10 @@ static int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 		// fprintf(stdout, "\t\tumask: %d\n", ctx->umask);
 
 		std::shared_ptr<INode> dir_inode = resolve_path(path);
-		// if (!can_read_inode(ctx, *dir_inode)) {
-		// 	// NOTE: I think this should be handled elsewhere, but that is okay
-		// 	throw UnixError(EACCES);
-		// }
+		if (!can_read_inode(ctx, *dir_inode)) {
+			// NOTE: I think this should be handled elsewhere, but that is okay
+			throw UnixError(EACCES);
+		}
 
 		IDirectory dir(*dir_inode);
 		std::unique_ptr<IDirectory::DirEntry> entry = nullptr;
@@ -181,6 +185,7 @@ static int myfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 		}
 
 	} catch (const UnixError& e) {
+		fprintf(stdout, "\tmyfs_readdir encountered error %d\n", e.errorcode);
 		return -e.errorcode;
 	}
 
@@ -259,10 +264,8 @@ static int myfs_mknod(const char *path, mode_t mode, dev_t rdev) {
 			throw UnixError(EEXIST);
 		}
 	} catch (const UnixError &e) {
-		// if an error occurs we must free the inode we were in the process of 
-		// creating or the inode will leak and never be released b/c it is not
-		// referenced in the directory hierarchy
-		fprintf(stdout, "ENCOUNTERED A UNIX ERROR, FAILING\n");
+		fprintf(stdout, "\tmyfs_mknod encountered error %d\n", e.errorcode);
+		// TODO: add code to release all chunks owned by the inode first
 		superblock->inode_table->free_inode(std::move(new_inode));
 		return -e.errorcode;
 	}
@@ -293,6 +296,10 @@ static int myfs_open(const char *path, struct fuse_file_info *fi)
 			throw UnixError(EEXIST);
 		}
 
+		if (file_inode->get_type() == S_IFDIR) {
+			throw UnixError(EISDIR);
+		}
+
 		// check for permission to open the file
 		if (fi->flags & O_RDONLY && !can_read_inode(ctx, *file_inode) != 0) {
 			throw UnixError(EACCES);
@@ -304,6 +311,7 @@ static int myfs_open(const char *path, struct fuse_file_info *fi)
 
 		return 0; // TODO: figure out propre return value
 	} catch (const UnixError &e) {
+		fprintf(stdout, "\tmyfs_open encountered error %d\n", e.errorcode);
 		return -e.errorcode;
 	}
 }
@@ -323,14 +331,9 @@ static int myfs_read(const char *path, char *buf, size_t size, off_t offset,
 			throw UnixError(EEXIST);
 		}
 
-		// check for permission to open the file
-		// if (fi->flags & O_RDONLY) {
-		// 	throw UnixError(EACCES);
-		// }
-
-		// return the resutl of the read
 		return file_inode->read(offset, buf, size);
 	} catch (const UnixError &e) {
+		fprintf(stdout, "\tmyfs_read encountered error %d\n", e.errorcode);
 		return -e.errorcode;
 	}
 }
@@ -350,18 +353,14 @@ static int myfs_write(const char *path, const char *buf, size_t size, off_t offs
 			throw UnixError(EEXIST);
 		}
 
-		// if (fi->flags & O_WRONLY) {
-		// 	throw UnixError(EACCES);
-		// }
-
-		// return the resutl of the read
 		try {
 			return file_inode->write(offset, buf, size);
 		} catch (FileSystemException &e) {
-      // TODO: IMPORTANT!!! ADD CODE TO FULLY REMOVE THE PARTIALLY WRITTEN INODE AND THEN FREE THE INODE 
-      throw UnixError(EDQUOT);
+			// TODO: IMPORTANT!!! ADD CODE TO FULLY REMOVE THE PARTIALLY WRITTEN INODE AND THEN FREE THE INODE 
+			throw UnixError(EDQUOT);
 		}
 	} catch (const UnixError &e) {
+		fprintf(stdout, "\tmyfs_write encountered error %d\n", e.errorcode);
 		return -e.errorcode;
 	}
 }
@@ -379,15 +378,16 @@ static int myfs_utimens(const char* path, const struct timespec ts[2]) {
 			throw UnixError(EEXIST);
 		}
 
-		// if (!can_write_inode(ctx, *file_inode)) {
-		// 	fprintf(stdout, "\tutimens permission denied to access inode\n");
-		// 	throw UnixError(EACCES);
-		// }
+		if (!can_write_inode(ctx, *file_inode)) {
+			fprintf(stdout, "\tutimens permission denied to access inode\n");
+			throw UnixError(EACCES);
+		}
 
 		// return the resutl of the read
 		file_inode->data.last_accessed = round(ts[0].tv_nsec / 1.0e6);
 		file_inode->data.last_modified = round(ts[1].tv_nsec / 1.0e6);
 	} catch (const UnixError &e) {
+		fprintf(stdout, "\tmyfs_utimens encountered error %d\n", e.errorcode);
 		return -e.errorcode;
 	}
 }
@@ -395,7 +395,61 @@ static int myfs_utimens(const char* path, const struct timespec ts[2]) {
 static int myfs_unlink(const char *path) {
 	fprintf(stdout, "myfs_unlink(%s)\n", path);
 	struct fuse_context *ctx = fuse_get_context();
-	
+
+	std::unique_ptr<char[]> path_cpy1(strdup(path));
+	std::unique_ptr<char[]> path_cpy2(strdup(path));
+	const char *name = basename(path_cpy1.get());
+	const char *dir = dirname(path_cpy2.get());
+
+	try {
+		
+		std::shared_ptr<INode> dir_inode = resolve_path(dir);
+		std::shared_ptr<INode> file_inode = resolve_path(path);
+		if (file_inode == nullptr || dir_inode == nullptr) {
+			throw UnixError(EEXIST);
+		}
+
+		if (!can_write_inode(ctx, *file_inode)) {
+			fprintf(stdout, "\tunlink permission denied to write inode\n");
+			throw UnixError(EACCES);
+		}
+
+		if (file_inode->get_type() != S_IFREG) {
+			// can not unlink a directory
+			throw UnixError(EISDIR);
+		}
+		
+		// first, remove it from the directory entry
+		fprintf(stdout, "\tprinting the files in the directory:\n");
+		{
+			IDirectory dir(*dir_inode);
+			std::unique_ptr<IDirectory::DirEntry> entry = nullptr;
+			while(entry = dir.next_entry(entry)) {
+				fprintf(stdout, "\tentry: %s\n", entry->filename);
+			}
+		}
+		
+
+		fprintf(stdout, "\tremoving the directory entry for file: %s in dir %s\n", name, dir);
+		IDirectory dir(*dir_inode);
+		if (dir.remove_file(name) == nullptr) {
+			fprintf(stdout, "\tPOTENTIALLY FATAL ERROR: file exists, but we were unable to remove it from the directory\n");
+			throw UnixError(EEXIST);
+		}
+
+		fprintf(stdout, "\treleasing the chunks associated with that file\n");
+		// then remove the associated file blocks
+		try {
+			file_inode->release_chunks();
+		} catch (const FileSystemException &e) {
+			fprintf(stdout, "\tfile system exception: %s", e.message.c_str());
+			throw UnixError(EFAULT); // THIS SHOULD NEVER HAPPEN ANYWAY
+		}
+	} catch (const UnixError &e) {
+		fprintf(stdout, "\tmyfs_unlink encountered error %d\n", e.errorcode);
+		return -e.errorcode;
+	}
+
 	return 0;
 }
 
@@ -405,14 +459,15 @@ int main(int argc, char *argv[])
 {
 	signal(SIGSEGV, sig_handler);
 
-	const size_t CHUNK_COUNT =  1024;
+	const size_t CHUNK_COUNT =  100 * 1024;
 	const size_t CHUNK_SIZE = 4096;
 
-	int fh = open("realdisk.myanfest", O_RDWR | O_CREAT);
-	truncate("realdisk.myanfest", CHUNK_COUNT * CHUNK_SIZE);
+	int fh = open("realdisk.myanfest", O_RDWR);
+	//truncate("realdisk.myanfest", CHUNK_COUNT * CHUNK_SIZE);
 	disk = std::unique_ptr<Disk>(new Disk(CHUNK_COUNT, CHUNK_SIZE, MAP_FILE | MAP_SHARED, fh));
 	fs = std::unique_ptr<FileSystem>(new FileSystem(disk.get()));
-	fs->superblock->init(0.1);
+	//fs->superblock->init(0.1);
+	fs->superblock->load_from_disk();
 	superblock = fs->superblock.get();
 	
 	static struct fuse_operations myfs_oper;
@@ -424,6 +479,7 @@ int main(int argc, char *argv[])
 	myfs_oper.mknod = myfs_mknod;
 	myfs_oper.mkdir = myfs_mkdir;
 	myfs_oper.utimens = myfs_utimens;
+	myfs_oper.unlink = myfs_unlink;
 	
 	return fuse_main(argc, argv, &myfs_oper, NULL);
 }
