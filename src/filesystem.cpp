@@ -258,6 +258,19 @@ std::shared_ptr<Chunk> INode::resolve_indirection(uint64_t chunk_number, bool cr
     return nullptr;
 }
 
+void INode::release_chunks() {
+    fprintf(stdout, "INode is releasing its allocated chunks: free'd chunks... ");
+    uint64_t rough_chunk_count = this->data.file_size / this->superblock->disk->chunk_size() + 1;
+    for (size_t idx = 0; idx < rough_chunk_count; ++idx) {
+        std::shared_ptr<Chunk> chunk = resolve_indirection(idx, false);
+        if (chunk == nullptr) 
+            continue ;
+        fprintf(stdout, "%d, ", chunk->chunk_idx);
+        this->superblock->free_chunk(std::move(chunk));
+    }
+    fprintf(stdout, ".\n");
+}
+
 std::string INode::to_string() {
     std::stringstream out;
     out << "INODE... " << std::endl;
@@ -666,27 +679,43 @@ std::unique_ptr<IDirectory::DirEntry> IDirectory::remove_file(const char *filena
     std::unique_ptr<DirEntry> last_entry = nullptr;
     std::unique_ptr<DirEntry> entry = nullptr;
 
-    while (entry = this->next_entry(entry)) {
+    size_t count = 0;
+    while (true) {
+        last_entry = std::move(entry);
+        entry = this->next_entry(last_entry);
+        if (entry == nullptr)
+            break ;
+
+        fprintf(stdout, "\tremove file checking entry with name: %s vs search name: %s\n", entry->filename, filename);
         if (strcmp(entry->filename, filename) == 0) {
+            fprintf(stdout, "FOUND A MATCHING NAME!!!!!!!!\n");
+
             if (last_entry == nullptr) {
                 header.dir_entries_head = entry->data.next_entry_ptr;
                 if (entry->data.next_entry_ptr == 0) {
                     header.dir_entries_tail = 0;
                 }
             } else {
+                fprintf(stdout, "check point 1\n");
                 last_entry->data.next_entry_ptr = entry->data.next_entry_ptr;
                 last_entry->write_to_disk(last_entry->offset, nullptr);
 
                 if (last_entry->data.next_entry_ptr == 0) {
+                    fprintf(stdout, "check point 2\n");
                     header.dir_entries_tail = last_entry->offset;
                 }
             }
             
+            fprintf(stdout, "check point 3\n");
             header.deleted_record_count++;
             header.record_count--;
-            return std::move(entry);
+            this->flush(); // make sure we flush out the changes to the header
+            return entry;
         }
-        last_entry = std::move(entry);
+
+        if (count++ > 50) {
+            break ;
+        }
     }
 
     return nullptr;

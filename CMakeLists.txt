@@ -13,7 +13,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 set(CMAKE_BUILD_TYPE Debug)
 set(CMAKE_CXX_FLAGS_DEBUG "-std=c++11 -O0 -g -pg -D_FILE_OFFSET_BITS=64")
-set(CMAKE_CXX_FLAGS_RELEASE "-std=c++11 -O3 -march=native -flto -pg -D_FILE_OFFSET_BITS=64")
+set(CMAKE_CXX_FLAGS_RELEASE "-std=c++11 -O3 -march=native -pg -D_FILE_OFFSET_BITS=64")
 
 # include cotire, an automatic build accelerator for cmake
 # include(cotire)
