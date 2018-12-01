@@ -442,7 +442,7 @@ int main(int argc, char *argv[])
 {
 	signal(SIGSEGV, sig_handler);
 
-	const size_t CHUNK_COUNT =  100 * 1024;
+	const size_t CHUNK_COUNT = 1024 * 1024;
 	const size_t CHUNK_SIZE = 4096;
 
 	int fh = open("realdisk.myanfest", O_RDWR);

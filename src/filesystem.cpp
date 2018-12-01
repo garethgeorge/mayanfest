@@ -486,7 +486,7 @@ void SuperBlock::load_from_disk() {
     offset += sizeof(uint64_t);
     //disk_size_bytes = *(uint64_t *)(sb_data+offset);
     if(disk_size_bytes != *(uint64_t *)(sb_data + offset)) {
-      throw new FileSystemException("Stored disk size in byte corrupted!");
+      throw new FileSystemException("Stored disk size in bytes corrupted!");
     }
     offset += sizeof(uint64_t);
     //disk_size_chunks = *(uint64_t *)(sb_data+offset);
