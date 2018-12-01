@@ -436,6 +436,60 @@ static int myfs_unlink(const char *path) {
 	return 0;
 }
 
+// CHECK TO MAKE SURE THEY CAN'T REMOVE . AND ..
+// static int myfs_rmdir(const char *path) {
+// 	fprintf(stdout, "myfs_unlink(%s)\n", path);
+// 	struct fuse_context *ctx = fuse_get_context();
+
+// 	std::unique_ptr<char[]> path_cpy1(strdup(path));
+// 	std::unique_ptr<char[]> path_cpy2(strdup(path));
+// 	const char *name = basename(path_cpy1.get());
+// 	const char *dir = dirname(path_cpy2.get());
+
+// 	try {
+		
+// 		std::shared_ptr<INode> dir_inode = resolve_path(dir);
+// 		std::shared_ptr<INode> file_inode = resolve_path(path);
+// 		if (file_inode == nullptr || dir_inode == nullptr) {
+// 			throw UnixError(EEXIST);
+// 		}
+
+// 		if (!can_write_inode(ctx, *file_inode)) {
+// 			fprintf(stdout, "\tunlink permission denied to write inode\n");
+// 			throw UnixError(EACCES);
+// 		}
+
+// 		if (file_inode->get_type() != S_IFDIR) {
+// 			// can not unlink a directory
+// 			throw UnixError(EISDIR);
+// 		}
+
+// 		IDirectory dir_to_remove(*dir_inode)
+
+
+// 		fprintf(stdout, "\tremoving the directory entry for file: %s in dir %s\n", name, dir);
+// 		IDirectory dir(*dir_inode);
+// 		if (dir.remove_file(name) == nullptr) {
+// 			fprintf(stdout, "\tPOTENTIALLY FATAL ERROR: file exists, but we were unable to remove it from the directory\n");
+// 			throw UnixError(EEXIST);
+// 		}
+
+// 		fprintf(stdout, "\treleasing the chunks associated with that file\n");
+// 		// then remove the associated file blocks
+// 		try {
+// 			file_inode->release_chunks();
+// 		} catch (const FileSystemException &e) {
+// 			fprintf(stdout, "\tfile system exception: %s", e.message.c_str());
+// 			throw UnixError(EFAULT); // THIS SHOULD NEVER HAPPEN ANYWAY
+// 		}
+// 	} catch (const UnixError &e) {
+// 		fprintf(stdout, "\tmyfs_unlink encountered error %d\n", e.errorcode);
+// 		return -e.errorcode;
+// 	}
+
+// 	return 0;
+// }
+
 void sig_handler(int);
 
 int main(int argc, char *argv[])
