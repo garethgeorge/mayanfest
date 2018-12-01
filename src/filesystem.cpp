@@ -84,55 +84,65 @@ uint64_t INode::read(uint64_t starting_offset, char *buf, uint64_t bytes_to_writ
 }
 
 uint64_t INode::write(uint64_t starting_offset, const char *buf, uint64_t bytes_to_write) {
+    const uint64_t original_starting_offset = starting_offset;
     const uint64_t chunk_size = this->superblock->disk_chunk_size;
     int64_t n = bytes_to_write;
-    uint64_t bytes_written = bytes_to_write;
-    
-    // std::cout << "WRITING BYTES: starting offset " << starting_offset << " count " << bytes_to_write << std::endl;
+    try {
+        // room to write for the first chunk
+        const uint64_t room_first_chunk = chunk_size - starting_offset % chunk_size;
+        uint64_t bytes_write_first_chunk = room_first_chunk;
+        if (n < room_first_chunk) {
+            bytes_write_first_chunk = n;
+        }
 
-    if (starting_offset + bytes_to_write > this->data.file_size) {
-        this->data.file_size = starting_offset + bytes_to_write;
+        {
+            std::shared_ptr<Chunk> chunk = this->resolve_indirection(starting_offset / chunk_size, true);
+            std::lock_guard<std::mutex> g(chunk->lock);
+            std::memcpy(chunk->data + (starting_offset % chunk_size), buf, bytes_write_first_chunk);
+            buf += bytes_write_first_chunk;
+            n -= bytes_write_first_chunk;
+        }
+        
+        if (n == 0) { // early return if we wrote less than a chunk
+            // make sure the filesize at the end is correct no matter what happens
+            if (original_starting_offset + bytes_to_write > this->data.file_size) {
+                this->data.file_size = original_starting_offset + bytes_to_write;
+            }
+            return bytes_to_write;
+        }
+
+        // fix the starting offset
+        starting_offset += bytes_write_first_chunk;
+        assert(starting_offset % chunk_size == 0);
+
+        while (n > chunk_size) {
+            std::shared_ptr<Chunk> chunk = this->resolve_indirection(starting_offset / chunk_size, true);
+            std::lock_guard<std::mutex> g(chunk->lock);
+            std::memcpy(chunk->data, buf, chunk_size);
+            buf += chunk_size;
+            n -= chunk_size;
+            starting_offset += chunk_size;
+        }
+        
+        {
+            std::shared_ptr<Chunk> chunk = this->resolve_indirection(starting_offset / chunk_size, true);
+            std::lock_guard<std::mutex> g(chunk->lock);
+            std::memcpy(chunk->data, buf, n);
+        }
+    } catch (const FileSystemException& e) {
+        // make sure the filesize at the end is correct no matter what happens
+        if (original_starting_offset + bytes_to_write - n > this->data.file_size) {
+            this->data.file_size = original_starting_offset + bytes_to_write - n;
+        }
+        throw e;
     }
 
-    // room to write for the first chunk
-    const uint64_t room_first_chunk = chunk_size - starting_offset % chunk_size;
-    uint64_t bytes_write_first_chunk = room_first_chunk;
-    if (n < room_first_chunk) {
-        bytes_write_first_chunk = n;
+    // make sure the filesize at the end is correct no matter what happens
+    if (original_starting_offset + bytes_to_write > this->data.file_size) {
+        this->data.file_size = original_starting_offset + bytes_to_write;
     }
 
-    {
-        std::shared_ptr<Chunk> chunk = this->resolve_indirection(starting_offset / chunk_size, true);
-        std::lock_guard<std::mutex> g(chunk->lock);
-        std::memcpy(chunk->data + (starting_offset % chunk_size), buf, bytes_write_first_chunk);
-        buf += bytes_write_first_chunk;
-        n -= bytes_write_first_chunk;
-    }
-    
-    if (n == 0) { // early return if we wrote less than a chunk
-        return bytes_to_write;
-    }
-
-    // fix the starting offset
-    starting_offset += bytes_write_first_chunk;
-    assert(starting_offset % chunk_size == 0);
-
-    while (n > chunk_size) {
-        std::shared_ptr<Chunk> chunk = this->resolve_indirection(starting_offset / chunk_size, true);
-        std::lock_guard<std::mutex> g(chunk->lock);
-        std::memcpy(chunk->data, buf, chunk_size);
-        buf += chunk_size;
-        n -= chunk_size;
-        starting_offset += chunk_size;
-    }
-    
-    {
-        std::shared_ptr<Chunk> chunk = this->resolve_indirection(starting_offset / chunk_size, true);
-        std::lock_guard<std::mutex> g(chunk->lock);
-        std::memcpy(chunk->data, buf, n);
-    }
-
-    return bytes_written;
+    return bytes_to_write;
 }
 
 std::shared_ptr<Chunk> INode::resolve_indirection(uint64_t chunk_number, bool createIfNotExists) {
@@ -246,6 +256,19 @@ std::shared_ptr<Chunk> INode::resolve_indirection(uint64_t chunk_number, bool cr
         throw FileSystemException("INode indirection table ran out of space");
     }
     return nullptr;
+}
+
+void INode::release_chunks() {
+    fprintf(stdout, "INode is releasing its allocated chunks: free'd chunks... ");
+    uint64_t rough_chunk_count = this->data.file_size / this->superblock->disk->chunk_size() + 1;
+    for (size_t idx = 0; idx < rough_chunk_count; ++idx) {
+        std::shared_ptr<Chunk> chunk = resolve_indirection(idx, false);
+        if (chunk == nullptr) 
+            continue ;
+        fprintf(stdout, "%d, ", chunk->chunk_idx);
+        this->superblock->free_chunk(std::move(chunk));
+    }
+    fprintf(stdout, ".\n");
 }
 
 std::string INode::to_string() {
@@ -587,7 +610,6 @@ uint64_t IDirectory::DirEntry::write_to_disk(size_t offset, const char *filename
     return offset;
 }
 
-
 void IDirectory::flush() { // flush your changes 
     inode->write(0, (char *)&header, sizeof(DirHeader));
 }
@@ -657,27 +679,43 @@ std::unique_ptr<IDirectory::DirEntry> IDirectory::remove_file(const char *filena
     std::unique_ptr<DirEntry> last_entry = nullptr;
     std::unique_ptr<DirEntry> entry = nullptr;
 
-    while (entry = this->next_entry(entry)) {
+    size_t count = 0;
+    while (true) {
+        last_entry = std::move(entry);
+        entry = this->next_entry(last_entry);
+        if (entry == nullptr)
+            break ;
+
+        fprintf(stdout, "\tremove file checking entry with name: %s vs search name: %s\n", entry->filename, filename);
         if (strcmp(entry->filename, filename) == 0) {
+            fprintf(stdout, "FOUND A MATCHING NAME!!!!!!!!\n");
+
             if (last_entry == nullptr) {
                 header.dir_entries_head = entry->data.next_entry_ptr;
                 if (entry->data.next_entry_ptr == 0) {
                     header.dir_entries_tail = 0;
                 }
             } else {
+                fprintf(stdout, "check point 1\n");
                 last_entry->data.next_entry_ptr = entry->data.next_entry_ptr;
                 last_entry->write_to_disk(last_entry->offset, nullptr);
 
                 if (last_entry->data.next_entry_ptr == 0) {
+                    fprintf(stdout, "check point 2\n");
                     header.dir_entries_tail = last_entry->offset;
                 }
             }
             
+            fprintf(stdout, "check point 3\n");
             header.deleted_record_count++;
             header.record_count--;
-            return std::move(entry);
+            this->flush(); // make sure we flush out the changes to the header
+            return entry;
         }
-        last_entry = std::move(entry);
+
+        if (count++ > 50) {
+            break ;
+        }
     }
 
     return nullptr;

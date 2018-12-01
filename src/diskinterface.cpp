@@ -53,7 +53,7 @@ void Disk::flush_chunk(const Chunk& chunk) {
 	int sync_retval = msync((void *)chunk_addr, page_count * this->_mempage_size, MS_ASYNC);
 	if (sync_retval != 0) {
 		char buff[1024];
-		sprintf(buff, "msync failed to synchronize the chunk segment with the disk, error code %d", sync_retval);
+		sprintf(buff, "msync failed to synchronize the chunk segment with the disk, error code %d for chunk %d", sync_retval, chunk.chunk_idx);
 		throw DiskException(buff);
 	}
 }

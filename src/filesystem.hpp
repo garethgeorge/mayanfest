@@ -24,51 +24,58 @@ struct FileSystemException : public StorageException {
 };
 
 struct SuperBlock {
-  Disk *disk = nullptr;
-  const uint64_t superblock_size_chunks = 1;
-  const uint64_t disk_size_bytes;
-  const uint64_t disk_size_chunks;
-  const uint64_t disk_chunk_size;
-  
-  uint64_t disk_block_map_offset; // chunk in which the disk block map starts
-  uint64_t disk_block_map_size_chunks; // number of chunks in disk block map
-  std::unique_ptr<DiskBitMap> disk_block_map;
-  
-  uint64_t inode_table_inode_count; // number of inodes in the inode_table
-  uint64_t inode_table_offset; // chunk in which the inode table starts
-  uint64_t inode_table_size_chunks; // number of chunks in the inode table
-  std::unique_ptr<INodeTable> inode_table;
-  
-  uint64_t data_offset; //where free chunks begin
-  uint64_t root_inode_index = 0;
-  
-  SuperBlock(Disk *disk);
-  
-  void init(double inode_table_size_rel_to_disk);
-  void load_from_disk();
-  
-  std::shared_ptr<Chunk> allocate_chunk() {
-    DiskBitMap::BitRange range = this->disk_block_map->find_unset_bits(1);
-    if (range.bit_count != 1) {
-      throw FileSystemException("FileSystem out of space -- unable to allocate a new chunk");
-    }
-    
-    std::shared_ptr<Chunk> chunk = this->disk->get_chunk(range.start_idx);
-    this->disk_block_map->set(range.start_idx);
-    
-    return std::move(chunk);
-  }
+	Disk *disk = nullptr;
+	const uint64_t superblock_size_chunks = 1;
+	const uint64_t disk_size_bytes;
+	const uint64_t disk_size_chunks;
+	const uint64_t disk_chunk_size;
+
+	uint64_t disk_block_map_offset; // chunk in which the disk block map starts
+	uint64_t disk_block_map_size_chunks; // number of chunks in disk block map
+	std::unique_ptr<DiskBitMap> disk_block_map;
+
+	uint64_t inode_table_inode_count; // number of inodes in the inode_table
+	uint64_t inode_table_offset; // chunk in which the inode table starts
+	uint64_t inode_table_size_chunks; // number of chunks in the inode table
+	std::unique_ptr<INodeTable> inode_table;
+
+	uint64_t data_offset; //where free chunks begin
+	uint64_t root_inode_index = 0;
+
+	SuperBlock(Disk *disk);
+
+	void init(double inode_table_size_rel_to_disk);
+	void load_from_disk();
+
+	std::shared_ptr<Chunk> allocate_chunk() {
+		DiskBitMap::BitRange range = this->disk_block_map->find_unset_bits(1);
+		if (range.bit_count != 1) {
+			throw FileSystemException("FileSystem out of space -- unable to allocate a new chunk");
+		}
+
+		std::shared_ptr<Chunk> chunk = this->disk->get_chunk(range.start_idx);
+		this->disk_block_map->set(range.start_idx);
+
+		return std::move(chunk);
+	}
+
+	void free_chunk(std::shared_ptr<Chunk> chunk_to_free) {
+		if (!chunk_to_free.unique()) {
+			throw FileSystemException("FileSystem free chunk failed -- the chunk passed was not 'unique', something else is using it");
+		}
+		this->disk_block_map->clr(chunk_to_free->chunk_idx);
+	}
 };
 
 struct FileSystem {
-  Disk *disk;			
-  std::unique_ptr<SuperBlock> superblock;
-  
-  // the file system, once constructed, takes ownership of the disk
-  FileSystem(Disk *disk) : disk(disk), superblock(new SuperBlock(disk)) {
-  }
+	Disk *disk;			
+	std::unique_ptr<SuperBlock> superblock;
 
-  void printForDebug();
+	// the file system, once constructed, takes ownership of the disk
+	FileSystem(Disk *disk) : disk(disk), superblock(new SuperBlock(disk)) {
+	}
+
+	void printForDebug();
 };
 
 struct INode;
@@ -177,14 +184,14 @@ struct INode {
 	}
 
 	mode_t get_type(){
-	    switch(this->data.file_type){
+		switch(this->data.file_type){
 		case FLAG_IF_DIR:
-		    return S_IFDIR;
+			return S_IFDIR;
 		case FLAG_IF_REG:
-		    return S_IFREG;
+			return S_IFREG;
 		default:
-		    throw FileSystemException("Invalid File Type");
-	    }
+			throw FileSystemException("Invalid File Type");
+		}
 	}
 };
 
@@ -204,7 +211,6 @@ private:
 
 	DirHeader header;
 	INode* inode;
-
 public:
 
 	struct DirEntry {
