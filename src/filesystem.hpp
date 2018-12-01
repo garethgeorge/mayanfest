@@ -55,6 +55,7 @@ struct SuperBlock {
 
 		std::shared_ptr<Chunk> chunk = this->disk->get_chunk(range.start_idx);
 		this->disk_block_map->set(range.start_idx);
+		std::memset(chunk->data, 0, this->disk->chunk_size());
 
 		return std::move(chunk);
 	}

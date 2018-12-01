@@ -490,16 +490,39 @@ static int myfs_unlink(const char *path) {
 // 	return 0;
 // }
 
+const int USER_OPT_COUNT = 2;
+std::vector<std::string> user_options;
+
+static int myfs_opt_proc(void *data, const char *arg, int key, struct fuse_args *outargs) {
+	if (key == FUSE_OPT_KEY_NONOPT && user_options.size() != USER_OPT_COUNT) {
+		user_options.push_back(arg);
+		return 0;
+	}
+	return 1;
+}
+
 void sig_handler(int);
 
 int main(int argc, char *argv[])
 {
 	signal(SIGSEGV, sig_handler);
 
-	const size_t CHUNK_COUNT = 1024 * 1024;
-	const size_t CHUNK_SIZE = 4096;
+	// parse arguments from the command line
+	struct fuse_args args = FUSE_ARGS_INIT(argc, argv);
+	fuse_opt_parse(&args, NULL, NULL, myfs_opt_proc);
 
-	int fh = open("realdisk.myanfest", O_RDWR);
+	if (user_options.size() != USER_OPT_COUNT) {
+		fprintf(stdout, "Expected argument: <backing file> <file size in bytes>\n");
+		return 1;
+	}
+
+	const char *backing_file_path = user_options[0].c_str();
+	const size_t file_size_in_bytes = strtol(user_options[1].c_str(), NULL, 10);
+
+	const size_t CHUNK_SIZE = 4096;
+	const size_t CHUNK_COUNT = file_size_in_bytes / CHUNK_SIZE;
+
+	int fh = open(backing_file_path, O_RDWR);
 	//truncate("realdisk.myanfest", CHUNK_COUNT * CHUNK_SIZE);
 	disk = std::unique_ptr<Disk>(new Disk(CHUNK_COUNT, CHUNK_SIZE, MAP_FILE | MAP_SHARED, fh));
 	fs = std::unique_ptr<FileSystem>(new FileSystem(disk.get()));
@@ -518,7 +541,7 @@ int main(int argc, char *argv[])
 	myfs_oper.utimens = myfs_utimens;
 	myfs_oper.unlink = myfs_unlink;
 	
-	return fuse_main(argc, argv, &myfs_oper, NULL);
+	return fuse_main(args.argc, args.argv, &myfs_oper, NULL);
 }
 
 void sig_handler(int sig) {

@@ -392,7 +392,7 @@ void SuperBlock::init(double inode_table_size_rel_to_disk) {
     }
 
     // zero out the disk
-    this->disk->zero_fill();
+    // this->disk->zero_fill();
 
     // initialize the disk block map
     {
