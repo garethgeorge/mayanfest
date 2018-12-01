@@ -418,17 +418,6 @@ static int myfs_unlink(const char *path) {
 			// can not unlink a directory
 			throw UnixError(EISDIR);
 		}
-		
-		// first, remove it from the directory entry
-		fprintf(stdout, "\tprinting the files in the directory:\n");
-		{
-			IDirectory dir(*dir_inode);
-			std::unique_ptr<IDirectory::DirEntry> entry = nullptr;
-			while(entry = dir.next_entry(entry)) {
-				fprintf(stdout, "\tentry: %s\n", entry->filename);
-			}
-		}
-		
 
 		fprintf(stdout, "\tremoving the directory entry for file: %s in dir %s\n", name, dir);
 		IDirectory dir(*dir_inode);
@@ -459,7 +448,7 @@ int main(int argc, char *argv[])
 {
 	signal(SIGSEGV, sig_handler);
 
-	const size_t CHUNK_COUNT =  100 * 1024;
+	const size_t CHUNK_COUNT = 1024 * 1024;
 	const size_t CHUNK_SIZE = 4096;
 
 	int fh = open("realdisk.myanfest", O_RDWR);
