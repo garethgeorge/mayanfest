@@ -236,13 +236,19 @@ static int myfs_mknod(const char *path, mode_t mode, dev_t rdev) {
 
 		// set the mode correctly
 		if (S_ISDIR(mode)) {
-			fprintf(stdout, "\tS_ISDIR(mode %d) so we are creating a directory\n", mode);
-			// properly initialize the empty directory
-			new_inode->set_type(S_IFDIR);
-			IDirectory dir(*new_inode);
-			dir.initializeEmpty();
-			dir.add_file(".", *new_inode);
-			dir.add_file("..", *dir_inode);
+			try {
+				fprintf(stdout, "\tS_ISDIR(mode %d) so we are creating a directory\n", mode);
+				// properly initialize the empty directory
+				new_inode->set_type(S_IFDIR);
+				IDirectory dir(*new_inode);
+				dir.initializeEmpty();
+				dir.add_file(".", *new_inode);
+				dir.add_file("..", *dir_inode);
+			}
+			catch(FileSystemException &e)
+			{
+				throw UnixError(EDQUOT);
+			}
 		} else if (S_ISREG(mode)) {
 			fprintf(stdout, "\tS_ISREG(mode %d) so we are creating a regular file\n", mode);
 			new_inode->set_type(S_IFREG);

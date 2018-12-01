@@ -23,49 +23,136 @@ struct FileSystemException : public StorageException {
 	FileSystemException(const std::string &message) : StorageException(message) { };
 };
 
-struct SuperBlock {
-	Disk *disk = nullptr;
-	const uint64_t superblock_size_chunks = 1;
-	const uint64_t disk_size_bytes;
-	const uint64_t disk_size_chunks;
-	const uint64_t disk_chunk_size;
+struct SegmentController {
+	std::mutex segment_controller_lock;
+	Disk* disk;
+	uint64_t data_offset;
+	uint64_t segment_size;
+	uint64_t num_segments;
+	uint64_t current_segment;
+	uint64_t current_chunk;
 
-	uint64_t disk_block_map_offset; // chunk in which the disk block map starts
-	uint64_t disk_block_map_size_chunks; // number of chunks in disk block map
-	std::unique_ptr<DiskBitMap> disk_block_map;
+	uint64_t get_segment_usage(uint64_t segment_number) {
+		std::shared_ptr<Chunk> chunk = disk->get_chunk(data_offset + segment_number * segment_size);
+		return *((uint64_t*)chunk->data);
+	}
 
-	uint64_t inode_table_inode_count; // number of inodes in the inode_table
-	uint64_t inode_table_offset; // chunk in which the inode table starts
-	uint64_t inode_table_size_chunks; // number of chunks in the inode table
-	std::unique_ptr<INodeTable> inode_table;
+	void set_segment_usage(uint64_t segment_number, uint64_t segment_usage) {
+		std::shared_ptr<Chunk> chunk = disk->get_chunk(data_offset + segment_number * segment_size);
+		*((uint64_t*)chunk->data) = segment_usage;
+	}
 
-	uint64_t data_offset; //where free chunks begin
-	uint64_t root_inode_index = 0;
+	uint64_t get_segment_chunk_to_inode(uint64_t segment_number, uint64_t chunk_number) {
+		std::shared_ptr<Chunk> chunk = disk->get_chunk(data_offset + segment_number * segment_size);
+		return ((uint64_t*)chunk->data)[chunk_number];
+	}
 
-	SuperBlock(Disk *disk);
+	void set_segment_chunk_to_inode(uint64_t segment_number, uint64_t chunk_number, uint64_t inode_number) {
+		std::shared_ptr<Chunk> chunk = disk->get_chunk(data_offset + segment_number * segment_size);
+		((uint64_t*)chunk->data)[chunk_number] = inode_number;
+	}
 
-	void init(double inode_table_size_rel_to_disk);
-	void load_from_disk();
+	void clear_all_segments() {
+		for(int i = 0; i < num_segments; i++) {
+			std::shared_ptr<Chunk> chunk = disk->get_chunk(data_offset + i * segment_size);
+			std::memset(chunk->data, 0, chunk->size_bytes);
+		}
+	}
 
-	std::shared_ptr<Chunk> allocate_chunk() {
-		DiskBitMap::BitRange range = this->disk_block_map->find_unset_bits(1);
-		if (range.bit_count != 1) {
+	//Find a new free segment
+	void set_new_free_segment() {
+		for(int i = 0; i < num_segments; i++) {
+			if(get_segment_usage(i) == 0) {
+				current_segment = i;
+				current_chunk = 1;
+				return;
+			}
+		}
+		current_segment = -1;
+	}
+
+	uint64_t alloc_next(uint64_t inode_number) {
+		//lock the segment controller, releases automatically at function exit
+		std::lock_guard<std::mutex> lock(segment_controller_lock);
+
+		//make sure we still have chunks available in this segment
+		if(current_chunk == segment_size) {
+			set_new_free_segment();
+		}
+
+		//TODO: Try cleaning first?
+
+		//throw exception if disk full
+		if(current_segment == -1) {
 			throw FileSystemException("FileSystem out of space -- unable to allocate a new chunk");
 		}
 
+<<<<<<< HEAD
 		std::shared_ptr<Chunk> chunk = this->disk->get_chunk(range.start_idx);
 		this->disk_block_map->set(range.start_idx);
 		std::memset(chunk->data, 0, this->disk->chunk_size());
+=======
+		//increment segment usage
+		set_segment_usage(current_segment, get_segment_usage(current_segment) + 1);
 
-		return std::move(chunk);
+		//set the inode mapping
+		set_segment_chunk_to_inode(current_segment, current_chunk, inode_number);
+>>>>>>> 12974fca3a9c6636b6049fec229036eadd34c94a
+
+		//compute absolute index of current chunk
+		uint64_t ret = data_offset + current_segment * segment_size + current_chunk;
+
+		//update current chunk
+		current_chunk++;
+
+		return ret;
 	}
+};
 
-	void free_chunk(std::shared_ptr<Chunk> chunk_to_free) {
+struct SuperBlock {
+  Disk *disk = nullptr;
+  const uint64_t superblock_size_chunks = 1;
+  const uint64_t disk_size_bytes;
+  const uint64_t disk_size_chunks;
+  const uint64_t disk_chunk_size;
+  
+  uint64_t disk_block_map_offset; // chunk in which the disk block map starts
+  uint64_t disk_block_map_size_chunks; // number of chunks in disk block map
+  std::unique_ptr<DiskBitMap> disk_block_map;
+  
+  uint64_t inode_table_inode_count; // number of inodes in the inode_table
+  uint64_t inode_table_offset; // chunk in which the inode table starts
+  uint64_t inode_table_size_chunks; // number of chunks in the inode table
+  std::unique_ptr<INodeTable> inode_table;
+  
+  uint64_t data_offset; //where free chunks begin
+  uint64_t root_inode_index = 0;
+
+  uint64_t segment_size_chunks; //segmenting the disk!
+  uint64_t num_segments;
+  
+  SegmentController segment_controller;
+
+  SuperBlock(Disk *disk);
+  
+  void init(double inode_table_size_rel_to_disk);
+  void load_from_disk();
+  
+  std::shared_ptr<Chunk> allocate_chunk(uint64_t inode_number) {
+	//Allocate the next chunk, does error handling internally
+	uint64_t chunk_index = segment_controller.alloc_next(inode_number);
+
+	//return the chunk
+    std::shared_ptr<Chunk> chunk = this->disk->get_chunk(chunk_index);
+    return std::move(chunk);
+  }
+
+  void free_chunk(std::shared_ptr<Chunk> chunk_to_free) {
 		if (!chunk_to_free.unique()) {
 			throw FileSystemException("FileSystem free chunk failed -- the chunk passed was not 'unique', something else is using it");
 		}
 		this->disk_block_map->clr(chunk_to_free->chunk_idx);
-	}
+  }
 };
 
 struct FileSystem {
