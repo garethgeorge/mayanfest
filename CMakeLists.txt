@@ -1,5 +1,5 @@
 # https://cmake.org/cmake-tutorial/
-cmake_minimum_required(VERSION 3.11)
+cmake_minimum_required(VERSION 3.10.2)
 project(Mayanfest)
 
 set (CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/CMake")

@@ -87,6 +87,89 @@ class IntegrationTest(unittest.TestCase):
 
         assert A == B
 
+    def testUnlinkNod(self):
+        ''' nod can be created and deleted '''
+        nodName = 'testUnlink.txt'
+
+        testNod = os.path.join(self.testPoint, nodName)
+        mountNod = os.path.join(self.mountPoint, nodName)
+
+        os.mknod(testNod)
+        os.mknod(mountNod)
+
+        os.unlink(testNod)
+        os.unlink(mountNod)
+
+    def testUnlinkNodNonExistent(self):
+        ''' trying to delete non-existent nod generates error '''
+        nodName = 'testUnlinkNonExistent.txt'
+
+        testNod = os.path.join(self.testPoint, nodName)
+        mountNod = os.path.join(self.mountPoint, nodName)
+
+        try:
+            os.unlink(testNod)
+        except OSError, e:
+            A = e.args[0]
+        try:
+            os.unlink(mountNod)
+        except OSError, e:
+            B = e.args[0]
+        
+        assert A == B
+
+    def testUnlinkDir(self):
+        ''' trying to delete directory generates error '''
+        dirName = 'testUnlinkDir'
+
+        mountDir = os.path.join(self.mountPoint, dirName)
+        testDir = os.path.join(self.testPoint, dirName)
+
+        os.mkdir(testDir)
+        os.mkdir(mountDir)
+
+        try:
+            os.unlink(testDir)
+        except OSError, e:
+            A = e.args[0]
+        try:
+            os.unlink(mountDir)
+        except OSError, e:
+            B = e.args[0]
+        
+        assert A == B
+
+    def testRmdir(self):
+        ''' create and delete a directory '''
+        dirName = 'testRmdir'
+
+        mountDir = os.path.join(self.mountPoint, dirName)
+        testDir = os.path.join(self.testPoint, dirName)
+
+        os.mkdir(testDir)
+        os.mkdir(mountDir)
+
+        os.rmdir(testDir)
+        os.rmdir(mountDir)
+
+    def testRmdirNonExistent(self):
+        ''' trying to delete a non-existent directory generates error '''
+        dirName = 'testRmdirNonExistent'
+
+        mountDir = os.path.join(self.mountPoint, dirName)
+        testDir = os.path.join(self.testPoint, dirName)
+        
+        try:
+            os.rmdir(testDir)
+        except OSError, e:
+            A = e.args[0]
+        try:
+            os.rmdir(mountDir)
+        except OSError, e:
+            B = e.args[0]
+
+        assert A == B
+
     def testReaddir(self):
         ''' directory can be read '''
         parentDir = 'testReadDir'
@@ -160,6 +243,7 @@ class IntegrationTest(unittest.TestCase):
         os.mknod(testFileName)
         os.mknod(mountFileName)
 
+        
         testFD = os.open(testFileName, os.O_WRONLY)
         os.write(testFD, content)
         os.close(testFD)
@@ -205,6 +289,75 @@ class IntegrationTest(unittest.TestCase):
         os.close(mountFD)
 
         assert A == B
+
+    #def testFileCreatedByRootForNonRoot(self):
+    #    ''' create a file as root user for non-root user '''
+    #    fileName = 'fileCreatedByRootForNonRoot.txt'
+    #    content = 'testing whether file created by root can be accessed by non root'
+    #    nonRootID = 1000
+
+    #    testFileName = os.path.join(self.testPoint, fileName)
+    #    mountFileName = os.path.join(self.mountPoint, fileName)
+    #    os.mknod(testFileName)
+    #    os.mknod(mountFileName)
+
+    #    pid = os.fork()
+    #    if pid == 0:
+    #        try:
+    #            os.setuid(nonRootID)
+    #            testFD = os.open(testFileName, os.O_WRONLY)
+    #            os.write(testFD, content)
+    #            os.close(testFD)
+
+    #            mountFD = os.open(mountFileName, os.O_WRONLY)
+    #            os.write(mountFD, content)
+    #            os.close(mountFD)
+
+    #            testFD = os.open(testFileName, os.O_RDONLY)
+    #            A = os.read(testFD, len(content))
+    #            os.close(testFD)
+
+    #            mountFD = os.open(mountFileName, os.O_RDONLY)
+    #            B = os.read(mountFD, len(content))
+    #            os.close(mountFD)
+
+    #            print('{0} {1}'.format(A, B))
+    #            assert A == B
+    #        finally:
+    #            os._exit(0)
+    #    os.waitpid(pid, 0)
+        
+    #def testWriteTillYouDie(self):
+    #    ''' try to write huge number of small size files '''
+    #    x = 0
+    #    while True:
+    #        x += 1
+    #        fileName = 'small-file-{0}.txt'.format(x)
+    #        mountFileName = os.path.join(self.mountPoint, fileName)
+    #        try:
+    #            os.mknod(mountFileName)
+    #        except OSError, e:
+    #            print('<<<<<<<<<< OSError no. {0} ({1}) >>>>>>>>>>'.format(e.args[0], e.args[1]))
+    #            break
+
+
+    #def testWriteLargeFile(self):
+    #    ''' write a very large file '''
+    #    fileName = 'largeFile.txt'
+    #    content = 'a' * (5 * 1024 * 1024 * 1024)
+
+    #    testFileName = os.path.join(self.testPoint, fileName)
+    #    mountFileName = os.path.join(self.mountPoint, fileName)
+    #    os.mknod(testFileName)
+    #    os.mknod(mountFileName)
+
+    #    testFD = os.open(testFileName, os.O_WRONLY)
+    #    os.write(testFD, content)
+    #    os.close(testFD)
+
+    #    mountFD = os.open(mountFileName, os.O_WRONLY)
+    #    os.write(mountFD, content)
+    #    os.close(mountFD)
 
 
 
